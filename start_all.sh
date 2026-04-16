@@ -1,0 +1,24 @@
+make down
+docker compose --profile all down -v
+make up-core
+sleep 30
+make init-buckets
+sleep 10
+make up-ingestion
+sleep 45
+make up-synthetic
+sleep 15
+make up-processing
+sleep 90
+make up-lakehouse
+sleep 60
+make up-monitoring
+sleep 20
+make up-analytics
+sleep 30
+make up-ai
+sleep 30
+make up-governance
+sleep 30
+make up-cicd
+sleep 30

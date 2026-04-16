@@ -1,0 +1,116 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "id": 1,
+      "title": "OEE Score",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "steps": [
+              { "value": null, "color": "red" },
+              { "value": 0.6, "color": "yellow" },
+              { "value": 0.85, "color": "green" }
+            ]
+          },
+          "min": 0, "max": 1,
+          "unit": "percentunit"
+        }
+      },
+      "targets": [{
+        "rawSql": "SELECT AVG(oee_score) AS oee FROM iceberg.gold.gold_manufacturing_oee_mart WHERE production_date >= CURRENT_DATE - INTERVAL '7' DAY AND plant = '$plant'",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 2,
+      "title": "Availability / Performance / Quality (7-Day Trend)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 6, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10, "pointSize": 5 },
+          "unit": "percentunit"
+        }
+      },
+      "targets": [{
+        "rawSql": "SELECT production_date AS time, AVG(availability) AS availability, AVG(performance) AS performance, AVG(quality_rate) AS quality_rate FROM iceberg.gold.gold_manufacturing_oee_mart WHERE production_date >= CURRENT_DATE - INTERVAL '7' DAY AND plant = '$plant' GROUP BY production_date ORDER BY production_date",
+        "format": "time_series"
+      }]
+    },
+    {
+      "id": 3,
+      "title": "Production Volume by Machine",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "targets": [{
+        "rawSql": "SELECT machine_id, SUM(total_actual_qty) AS volume FROM iceberg.gold.gold_manufacturing_oee_mart WHERE production_date >= CURRENT_DATE - INTERVAL '7' DAY AND plant = '$plant' GROUP BY machine_id ORDER BY volume DESC LIMIT 10",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 4,
+      "title": "Top 5 Machines by Scrap Percentage",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "targets": [{
+        "rawSql": "SELECT machine_id, plant, AVG(avg_scrap_pct) AS avg_scrap_pct, SUM(total_rejected_qty) AS total_rejected FROM iceberg.gold.gold_manufacturing_oee_mart WHERE production_date >= CURRENT_DATE - INTERVAL '7' DAY GROUP BY machine_id, plant ORDER BY avg_scrap_pct DESC LIMIT 5",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 5,
+      "title": "Real-Time Machine Status",
+      "type": "state-timeline",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{
+        "expr": "machine_status_gauge{plant=~\"$plant\"}",
+        "legendFormat": "{{machine_id}}"
+      }]
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["oee", "manufacturing", "tpl"],
+  "templating": {
+    "list": [
+      {
+        "name": "plant",
+        "type": "custom",
+        "query": "Dahej-P1,Dahej-P2",
+        "current": { "text": "Dahej-P1", "value": "Dahej-P1" }
+      },
+      {
+        "name": "shift",
+        "type": "custom",
+        "query": "A,B,C",
+        "current": { "text": "A", "value": "A" }
+      },
+      {
+        "name": "date_range",
+        "type": "custom",
+        "query": "7d,14d,30d,90d",
+        "current": { "text": "7d", "value": "7d" }
+      }
+    ]
+  },
+  "time": { "from": "now-7d", "to": "now" },
+  "title": "Manufacturing OEE Dashboard",
+  "uid": "tpl-mfg-oee",
+  "version": 1
+}

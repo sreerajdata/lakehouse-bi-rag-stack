@@ -1,0 +1,51 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: tpl-lakehouse-dev
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: kafka
+    static_configs:
+      - targets: ["kafka:9092"]
+
+  - job_name: kafka-connect
+    static_configs:
+      - targets: ["kafka-connect:8083"]
+    metrics_path: /metrics
+
+  - job_name: spark-master
+    static_configs:
+      - targets: ["spark-master:8181"]
+    metrics_path: /metrics/prometheus
+
+  - job_name: airflow
+    static_configs:
+      - targets: ["airflow-webserver:8080"]
+    metrics_path: /admin/metrics
+
+  - job_name: trino
+    static_configs:
+      - targets: ["trino:8080"]
+    metrics_path: /v1/jmx/mbean/trino.execution%3Aname%3DQueryManager
+
+  - job_name: milvus
+    static_configs:
+      - targets: ["milvus:9091"]
+
+  - job_name: node-exporter
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  - job_name: seaweedfs
+    static_configs:
+      - targets: ["seaweedfs-master:9333"]
+    metrics_path: /metrics
+
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]

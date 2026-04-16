@@ -1,0 +1,40 @@
+name: tpl_lakehouse
+version: "1.0.0"
+config-version: 2
+
+profile: tpl_lakehouse
+
+model-paths: ["models"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  tpl_lakehouse:
+    bronze:
+      +materialized: table
+      +schema: bronze
+      +tags: ["bronze", "raw"]
+
+    silver:
+      +materialized: incremental
+      +unique_key: _row_hash
+      +on_schema_change: append_new_columns
+      +schema: silver
+      +tags: ["silver", "cleaned"]
+      +incremental_strategy: merge
+
+    gold:
+      +materialized: table
+      +schema: gold
+      +tags: ["gold", "mart"]
+
+vars:
+  s3_bronze: "s3a://lakehouse-bronze"
+  s3_silver: "s3a://lakehouse-silver"
+  s3_gold:   "s3a://lakehouse-gold"
+  data_owner: "TPL-Data-Engineering"
+  regulatory_framework: "21CFR_Part11_EU_Annex11"

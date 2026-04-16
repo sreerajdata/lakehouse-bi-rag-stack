@@ -1,0 +1,209 @@
+# ============================================================
+# Silver Layer Schema — Tests, Docs, Contracts
+# 21 CFR Part 11 / ALCOA+ Data Quality Enforcement
+# ============================================================
+
+version: 2
+
+models:
+  - name: silver_mes_production_orders
+    description: "Cleaned MES production orders with yield calculations and duration metrics"
+    columns:
+      - name: order_id
+        description: "Unique production order identifier"
+        tests:
+          - not_null
+          - unique
+      - name: product_code
+        description: "Product SKU code"
+        tests:
+          - not_null
+      - name: batch_number
+        description: "Manufacturing batch number for traceability"
+      - name: machine_id
+        description: "Machine identifier"
+      - name: status
+        description: "Order status"
+        tests:
+          - accepted_values:
+              values: ['COMPLETED', 'IN_PROGRESS', 'ON_HOLD']
+      - name: yield_pct
+        description: "Yield percentage = (actual_qty / planned_qty) * 100"
+      - name: _row_hash
+        description: "ALCOA+ data integrity hash"
+        tests:
+          - not_null
+
+  - name: silver_iqms_quality_tests
+    description: "Cleaned IQMS quality test results with pass/fail flags and spec deviation analysis"
+    columns:
+      - name: test_id
+        description: "Unique quality test identifier"
+        tests:
+          - not_null
+          - unique
+      - name: batch_number
+        description: "Manufacturing batch number"
+      - name: product_code
+        description: "Product code under test"
+      - name: test_type
+        description: "Type of quality test performed"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['HARDNESS', 'DISSOLUTION', 'ASSAY', 'MOISTURE', 'PARTICLE_SIZE', 'MICROBIAL']
+      - name: result_value
+        description: "Numeric test result value"
+        tests:
+          - not_null
+      - name: result
+        description: "PASS or FAIL outcome"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['PASS', 'FAIL']
+      - name: pass_fail_flag
+        description: "Boolean TRUE if result = PASS"
+      - name: deviation_from_mean
+        description: "Deviation from target (100) normalized: (result_value - 100) / 100"
+      - name: spec_status
+        description: "WITHIN_SPEC, ABOVE_USL, or BELOW_LSL"
+      - name: _row_hash
+        description: "ALCOA+ data integrity hash"
+        tests:
+          - not_null
+
+  - name: silver_iqms_deviations
+    description: "Cleaned IQMS deviations with numeric severity scoring for risk aggregation"
+    columns:
+      - name: deviation_id
+        description: "Unique deviation/non-conformance identifier"
+        tests:
+          - not_null
+          - unique
+      - name: batch_number
+        description: "Affected batch number"
+      - name: product_code
+        description: "Affected product code"
+      - name: severity
+        description: "Deviation severity classification"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['CRITICAL', 'MAJOR', 'MINOR']
+      - name: severity_score
+        description: "Numeric severity score: CRITICAL=3, MAJOR=2, MINOR=1"
+      - name: status
+        description: "Deviation lifecycle status"
+        tests:
+          - accepted_values:
+              values: ['OPEN', 'UNDER_INVESTIGATION', 'CLOSED']
+      - name: days_to_close
+        description: "Days from detection to closure (NULL if open)"
+      - name: _row_hash
+        description: "ALCOA+ data integrity hash"
+        tests:
+          - not_null
+
+  - name: silver_trackwise_capas
+    description: "Cleaned Trackwise CAPAs with SLA tracking and overdue detection"
+    columns:
+      - name: capa_id
+        description: "Unique CAPA identifier"
+        tests:
+          - not_null
+          - unique
+      - name: product_code
+        description: "Associated product code"
+      - name: department
+        description: "Responsible department"
+      - name: status
+        description: "CAPA lifecycle status"
+        tests:
+          - accepted_values:
+              values: ['OPEN', 'IN_PROGRESS', 'COMPLETED', 'VERIFIED', 'CLOSED']
+      - name: days_open
+        description: "Number of days the CAPA has been open"
+      - name: is_overdue
+        description: "TRUE if target close date has passed and CAPA not yet closed"
+      - name: sla_breach_flag
+        description: "TRUE if days_open exceeds 90-day SLA threshold"
+      - name: effectiveness_verified
+        description: "Whether effectiveness check has been completed"
+      - name: _row_hash
+        description: "ALCOA+ data integrity hash"
+        tests:
+          - not_null
+
+  - name: silver_sap_inventory
+    description: "Cleaned SAP inventory movements with business-friendly movement classification"
+    columns:
+      - name: document_number
+        description: "SAP material document number"
+        tests:
+          - not_null
+          - unique
+      - name: material_code
+        description: "Material/item code"
+        tests:
+          - not_null
+      - name: movement_type
+        description: "SAP movement type code (101, 261, 311, 501, 551)"
+      - name: movement_category
+        description: "Business category: receipt, issue, transfer, scrap, other"
+        tests:
+          - accepted_values:
+              values: ['receipt', 'issue', 'transfer', 'scrap', 'other']
+      - name: quantity
+        description: "Movement quantity (absolute value)"
+        tests:
+          - not_null
+      - name: posting_date
+        description: "SAP posting date"
+        tests:
+          - not_null
+      - name: valuation_amount_inr
+        description: "Valuation amount in INR"
+      - name: running_balance_flag
+        description: "+1 for inbound, -1 for outbound, 0 for neutral"
+      - name: _row_hash
+        description: "ALCOA+ data integrity hash"
+        tests:
+          - not_null
+
+  - name: silver_tms_training
+    description: "Cleaned TMS training records with overdue detection and certification expiry tracking"
+    columns:
+      - name: record_id
+        description: "Unique training record identifier"
+        tests:
+          - not_null
+          - unique
+      - name: employee_id
+        description: "Employee identifier"
+        tests:
+          - not_null
+      - name: training_name
+        description: "Name of the training course"
+      - name: training_category
+        description: "Training classification"
+        tests:
+          - accepted_values:
+              values: ['GMP', 'SAFETY', 'TECHNICAL', 'REGULATORY']
+      - name: status
+        description: "Training completion status"
+        tests:
+          - accepted_values:
+              values: ['COMPLETED', 'SCHEDULED', 'IN_PROGRESS', 'OVERDUE']
+      - name: training_overdue_flag
+        description: "TRUE if scheduled date passed and training not completed"
+      - name: days_since_completion
+        description: "Days elapsed since training was completed"
+      - name: certification_expiry_date
+        description: "Date when certification expires (completion_date + validity_months * 30)"
+      - name: certification_expired
+        description: "TRUE if certification has expired"
+      - name: _row_hash
+        description: "ALCOA+ data integrity hash"
+        tests:
+          - not_null

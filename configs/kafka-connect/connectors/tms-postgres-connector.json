@@ -1,0 +1,32 @@
+{
+  "name": "tms-postgres-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "admin",
+    "database.password": "admin123",
+    "database.dbname": "lakehouse_meta",
+    "database.server.name": "cdc.tms",
+    "topic.prefix": "cdc.tms",
+    "table.include.list": "public.tms_training_completions",
+    "plugin.name": "pgoutput",
+    "slot.name": "tms_slot",
+    "publication.name": "tms_publication",
+    "tombstones.on.delete": "false",
+    "snapshot.mode": "initial",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    "transforms": "unwrap",
+    "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
+    "transforms.unwrap.add.fields": "op,table,source.ts_ms",
+    "transforms.unwrap.drop.tombstones": "true",
+    "heartbeat.interval.ms": "60000",
+    "errors.tolerance": "all",
+    "errors.deadletterqueue.topic.name": "dlq.tms.training_completions",
+    "errors.deadletterqueue.topic.replication.factor": "1",
+    "errors.deadletterqueue.context.headers.enable": "true"
+  }
+}

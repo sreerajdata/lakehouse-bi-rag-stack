@@ -1,0 +1,46 @@
+# ============================================================
+# Apache Ranger — Admin Setup Configuration
+# TPL Data Lakehouse RBAC Policies
+# ============================================================
+
+ranger:
+  admin:
+    url: "http://ranger:6080"
+    username: "admin"
+    password: "rangerR0cks!"
+
+  # Service definitions
+  services:
+    - name: "tpl-trino"
+      type: "trino"
+      config:
+        jdbc_url: "jdbc:trino://trino:8080"
+        username: "admin"
+        policy.download.auth.users: "admin"
+
+  # Role definitions
+  roles:
+    - name: "data_engineer"
+      description: "Full access to all schemas and tables"
+      users: ["admin", "de_user"]
+
+    - name: "analyst"
+      description: "Read-only access to silver and gold schemas"
+      users: ["analyst_user"]
+
+    - name: "qa_team"
+      description: "Read access to gold compliance tables only"
+      users: ["qa_user"]
+
+    - name: "executive"
+      description: "Read access to gold OEE and training marts"
+      users: ["exec_user"]
+
+  # Audit configuration
+  audit:
+    destination: "opensearch"
+    config:
+      opensearch_url: "http://opensearch:9200"
+      index_name: "ranger_audit"
+      opensearch_user: "admin"
+      opensearch_password: "Admin@123456"

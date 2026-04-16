@@ -1,0 +1,15 @@
+.env
+*.jar
+*.tar
+*.tar.gz
+airgap-images/
+data/
+**/data/
+**/logs/
+**/plugins/
+.DS_Store
+Thumbs.db
+*.pyc
+__pycache__/
+.pytest_cache/
+.ipynb_checkpoints/

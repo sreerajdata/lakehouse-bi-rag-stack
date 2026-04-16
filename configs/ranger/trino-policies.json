@@ -1,0 +1,141 @@
+{
+  "policies": [
+    {
+      "policyName": "data_engineer_full_access",
+      "service": "tpl-trino",
+      "resources": {
+        "catalog": { "values": ["iceberg"], "isExcludes": false },
+        "schema": { "values": ["bronze", "silver", "gold"], "isExcludes": false },
+        "table": { "values": ["*"], "isExcludes": false },
+        "column": { "values": ["*"], "isExcludes": false }
+      },
+      "policyItems": [
+        {
+          "accesses": [
+            { "type": "select", "isAllowed": true },
+            { "type": "insert", "isAllowed": true },
+            { "type": "create", "isAllowed": true },
+            { "type": "drop", "isAllowed": true },
+            { "type": "alter", "isAllowed": true }
+          ],
+          "users": [],
+          "groups": [],
+          "roles": ["data_engineer"],
+          "conditions": [],
+          "delegateAdmin": true
+        }
+      ],
+      "isEnabled": true,
+      "isAuditEnabled": true
+    },
+    {
+      "policyName": "analyst_silver_gold_read",
+      "service": "tpl-trino",
+      "resources": {
+        "catalog": { "values": ["iceberg"], "isExcludes": false },
+        "schema": { "values": ["silver", "gold"], "isExcludes": false },
+        "table": { "values": ["*"], "isExcludes": false },
+        "column": { "values": ["*"], "isExcludes": false }
+      },
+      "policyItems": [
+        {
+          "accesses": [
+            { "type": "select", "isAllowed": true }
+          ],
+          "users": [],
+          "groups": [],
+          "roles": ["analyst"],
+          "conditions": [],
+          "delegateAdmin": false
+        }
+      ],
+      "isEnabled": true,
+      "isAuditEnabled": true
+    },
+    {
+      "policyName": "qa_team_compliance_read",
+      "service": "tpl-trino",
+      "resources": {
+        "catalog": { "values": ["iceberg"], "isExcludes": false },
+        "schema": { "values": ["gold"], "isExcludes": false },
+        "table": {
+          "values": [
+            "gold_compliance_capa_mart",
+            "gold_quality_risk_mart",
+            "gold_training_compliance_mart"
+          ],
+          "isExcludes": false
+        },
+        "column": { "values": ["*"], "isExcludes": false }
+      },
+      "policyItems": [
+        {
+          "accesses": [
+            { "type": "select", "isAllowed": true }
+          ],
+          "users": [],
+          "groups": [],
+          "roles": ["qa_team"],
+          "conditions": [],
+          "delegateAdmin": false
+        }
+      ],
+      "isEnabled": true,
+      "isAuditEnabled": true
+    },
+    {
+      "policyName": "executive_dashboard_read",
+      "service": "tpl-trino",
+      "resources": {
+        "catalog": { "values": ["iceberg"], "isExcludes": false },
+        "schema": { "values": ["gold"], "isExcludes": false },
+        "table": {
+          "values": [
+            "gold_manufacturing_oee_mart",
+            "gold_training_compliance_mart",
+            "gold_sap_inventory_mart"
+          ],
+          "isExcludes": false
+        },
+        "column": { "values": ["*"], "isExcludes": false }
+      },
+      "policyItems": [
+        {
+          "accesses": [
+            { "type": "select", "isAllowed": true }
+          ],
+          "users": [],
+          "groups": [],
+          "roles": ["executive"],
+          "conditions": [],
+          "delegateAdmin": false
+        }
+      ],
+      "rowFilterPolicyItems": [
+        {
+          "accesses": [{ "type": "select", "isAllowed": true }],
+          "roles": ["executive"],
+          "rowFilterInfo": {
+            "filterExpr": "plant = current_user_plant()"
+          }
+        }
+      ],
+      "dataMaskPolicyItems": [
+        {
+          "accesses": [{ "type": "select", "isAllowed": true }],
+          "roles": ["executive"],
+          "dataMaskInfo": {
+            "dataMaskType": "MASK_HASH",
+            "conditionExpr": "",
+            "valueExpr": ""
+          },
+          "resources": {
+            "column": { "values": ["batch_number"], "isExcludes": false }
+          }
+        }
+      ],
+      "isEnabled": true,
+      "isAuditEnabled": true
+    }
+  ]
+}

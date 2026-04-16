@@ -1,0 +1,51 @@
+# IQMS Silver Layer Checkpoint — Quality Test Validation
+name: iqms_silver_checkpoint
+config_version: 1.0
+class_name: Checkpoint
+module_name: great_expectations.checkpoint
+
+run_name_template: "iqms_silver_%Y%m%d_%H%M%S"
+
+validations:
+  - batch_request:
+      datasource_name: trino_datasource
+      data_connector_name: default_inferred_data_connector
+      data_asset_name: silver.silver_iqms_quality_tests
+    expectation_suite_name: iqms_silver_suite
+
+expectation_suite_name: iqms_silver_suite
+expectations:
+  # result_value must be between 80 and 120 (pharmaceutical spec range)
+  - expectation_type: expect_column_values_to_be_between
+    kwargs:
+      column: result_value
+      min_value: 80
+      max_value: 120
+      mostly: 0.95
+
+  # result must be PASS or FAIL
+  - expectation_type: expect_column_values_to_be_in_set
+    kwargs:
+      column: result
+      value_set: ["PASS", "FAIL"]
+
+  # test_type must not be null
+  - expectation_type: expect_column_values_to_not_be_null
+    kwargs:
+      column: test_type
+
+  # test_id must not be null
+  - expectation_type: expect_column_values_to_not_be_null
+    kwargs:
+      column: test_id
+
+  # test_id must be unique
+  - expectation_type: expect_column_values_to_be_unique
+    kwargs:
+      column: test_id
+      mostly: 0.99
+
+  # batch_number must not be null
+  - expectation_type: expect_column_values_to_not_be_null
+    kwargs:
+      column: batch_number

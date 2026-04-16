@@ -1,0 +1,82 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Open CAPAs by Department",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "targets": [{
+        "rawSql": "SELECT department, SUM(open_capas) AS open_capas, SUM(overdue_capas) AS overdue_capas FROM iceberg.gold.gold_compliance_capa_mart WHERE report_month >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '3' MONTH) GROUP BY department ORDER BY open_capas DESC",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 2,
+      "title": "CAPA RAG Status Distribution",
+      "type": "piechart",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed" } }, "overrides": [
+        { "matcher": { "id": "byName", "options": "GREEN" }, "properties": [{ "id": "color", "value": { "fixedColor": "green" } }] },
+        { "matcher": { "id": "byName", "options": "AMBER" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange" } }] },
+        { "matcher": { "id": "byName", "options": "RED" }, "properties": [{ "id": "color", "value": { "fixedColor": "red" } }] }
+      ]},
+      "targets": [{
+        "rawSql": "SELECT compliance_rag_status, COUNT(*) AS count FROM iceberg.gold.gold_compliance_capa_mart GROUP BY compliance_rag_status",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 3,
+      "title": "Quality Test Pass Rate Trend",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": { "defaults": { "unit": "percent", "custom": { "lineWidth": 2, "fillOpacity": 10 } } },
+      "targets": [{
+        "rawSql": "SELECT production_date AS time, AVG(quality_pass_rate_pct) AS pass_rate FROM iceberg.gold.gold_manufacturing_oee_mart WHERE production_date >= CURRENT_DATE - INTERVAL '30' DAY GROUP BY production_date ORDER BY production_date",
+        "format": "time_series"
+      }]
+    },
+    {
+      "id": 4,
+      "title": "Overdue Training Count",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "value": null, "color": "green" }, { "value": 5, "color": "yellow" }, { "value": 15, "color": "red" }] } } },
+      "targets": [{
+        "rawSql": "SELECT SUM(overdue_trainings) AS overdue FROM iceberg.gold.gold_training_compliance_mart WHERE report_month = DATE_TRUNC('month', CURRENT_DATE)",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 5,
+      "title": "Recent Audit Log Entries",
+      "type": "logs",
+      "gridPos": { "h": 8, "w": 16, "x": 8, "y": 8 },
+      "datasource": { "type": "loki", "uid": "${DS_LOKI}" },
+      "targets": [{
+        "expr": "{service=~\".*airflow.*|.*trino.*|.*datahub.*\"} |= \"audit\" or |= \"compliance\"",
+        "legendFormat": ""
+      }]
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["compliance", "audit", "capa", "quality"],
+  "templating": {
+    "list": [
+      { "name": "plant", "type": "custom", "query": "Dahej-P1,Dahej-P2" },
+      { "name": "shift", "type": "custom", "query": "A,B,C" },
+      { "name": "date_range", "type": "custom", "query": "7d,14d,30d,90d" }
+    ]
+  },
+  "time": { "from": "now-30d", "to": "now" },
+  "title": "Compliance & Audit Dashboard",
+  "uid": "tpl-compliance-audit",
+  "version": 1
+}

@@ -1,0 +1,167 @@
+# ============================================================
+# Gold Layer Schema — Domain Marts Documentation & Tests
+# 21 CFR Part 11 / ALCOA+ / GxP Compliance
+# ============================================================
+
+version: 2
+
+models:
+  - name: gold_manufacturing_oee_mart
+    description: "Manufacturing OEE & Production Performance Mart — one row per machine per shift per day"
+    meta:
+      owner: "TPL-Data-Engineering"
+      regulatory_impact: "21 CFR Part 11 — production efficiency tracking"
+      refresh_frequency: "hourly"
+    columns:
+      - name: machine_id
+        description: "Machine identifier"
+        tests: [not_null]
+      - name: plant
+        description: "Manufacturing plant"
+      - name: production_date
+        description: "Date of production"
+      - name: oee_score
+        description: "Overall Equipment Effectiveness = availability × performance × quality_rate"
+      - name: availability
+        description: "Machine availability ratio (0-1)"
+      - name: performance
+        description: "Production performance ratio (0-1)"
+      - name: quality_rate
+        description: "Quality rate from IQMS test pass rate (0-1)"
+
+  - name: gold_compliance_capa_mart
+    description: "Compliance & CAPA Performance Mart — CAPA closure rates and deviation trends"
+    meta:
+      owner: "TPL-QA-Team"
+      regulatory_impact: "21 CFR Part 11, EU Annex 11 — CAPA effectiveness tracking"
+      refresh_frequency: "hourly"
+    columns:
+      - name: product_code
+        description: "Product code"
+      - name: department
+        description: "Responsible department"
+      - name: report_month
+        description: "Reporting month"
+      - name: compliance_rag_status
+        description: "GREEN (>=90% closure), AMBER (>=70%), RED (<70%)"
+        tests:
+          - accepted_values:
+              values: ['GREEN', 'AMBER', 'RED']
+
+  - name: gold_sap_inventory_mart
+    description: "SAP Inventory & Stock Management Mart — material-level stock metrics per plant per month"
+    meta:
+      owner: "TPL-Supply-Chain"
+      regulatory_impact: "GxP material traceability and inventory controls"
+      refresh_frequency: "daily"
+    columns:
+      - name: material_code
+        description: "SAP material code"
+        tests: [not_null]
+      - name: plant
+        description: "Manufacturing plant code"
+        tests: [not_null]
+      - name: posting_month
+        description: "Reporting month (DATE_TRUNC of posting_date)"
+        tests: [not_null]
+      - name: total_receipts
+        description: "Total quantity received (GR for PO + Receipt w/o PO)"
+      - name: total_issues
+        description: "Total quantity issued to production (GI)"
+      - name: closing_stock
+        description: "Approximate closing stock = receipts - issues - scrap"
+      - name: stock_turnover_ratio
+        description: "Inventory turnover = issues / avg_stock"
+      - name: days_of_inventory
+        description: "Days of inventory on hand based on issue rate"
+      - name: scrap_value_inr
+        description: "Total scrap valuation in INR"
+
+  - name: gold_quality_risk_mart
+    description: "Quality Risk Assessment Mart — batch-level risk scoring for release decisions"
+    meta:
+      owner: "TPL-QA-Team"
+      regulatory_impact: "21 CFR Part 11 — batch release decision support"
+      refresh_frequency: "hourly"
+    columns:
+      - name: product_code
+        description: "Product code"
+        tests: [not_null]
+      - name: batch_number
+        description: "Manufacturing batch number"
+        tests: [not_null]
+      - name: batch_release_status
+        description: "PASS, FAIL, or PENDING based on quality gates"
+        tests:
+          - accepted_values:
+              values: ['PASS', 'FAIL', 'PENDING']
+      - name: overall_risk_score
+        description: "Composite risk score 0-100 (higher = more risk)"
+      - name: risk_rag_status
+        description: "RED (critical deviations), AMBER (elevated risk), GREEN (acceptable)"
+        tests:
+          - accepted_values:
+              values: ['RED', 'AMBER', 'GREEN']
+      - name: pass_rate
+        description: "Quality test pass rate percentage"
+      - name: critical_deviation_count
+        description: "Count of CRITICAL severity deviations for this batch"
+
+  - name: gold_training_compliance_mart
+    description: "Training Compliance Mart — department-level training KPIs for GMP compliance"
+    meta:
+      owner: "TPL-HR-Training"
+      regulatory_impact: "21 CFR Part 11 — demonstrable training compliance for GMP"
+      refresh_frequency: "daily"
+    columns:
+      - name: department
+        description: "Department name"
+        tests: [not_null]
+      - name: report_month
+        description: "Reporting month"
+        tests: [not_null]
+      - name: total_employees_trained
+        description: "Count of distinct employees who completed training"
+      - name: overdue_trainings
+        description: "Count of overdue training records"
+      - name: completion_rate_pct
+        description: "Training completion percentage"
+      - name: gmp_compliance_score
+        description: "GMP-specific training completion score (0-100)"
+      - name: training_rag_status
+        description: "GREEN (>=95% completion), AMBER (>=80%), RED (<80%)"
+        tests:
+          - accepted_values:
+              values: ['GREEN', 'AMBER', 'RED']
+
+  - name: gold_supply_chain_mart
+    description: "Supply Chain & Vendor Performance Mart — vendor scorecards and procurement KPIs"
+    meta:
+      owner: "TPL-Supply-Chain"
+      regulatory_impact: "GxP vendor qualification and material traceability"
+      refresh_frequency: "daily"
+    columns:
+      - name: vendor_code
+        description: "SAP vendor code"
+        tests: [not_null]
+      - name: material_code
+        description: "Material code"
+        tests: [not_null]
+      - name: posting_month
+        description: "Reporting month"
+        tests: [not_null]
+      - name: on_time_delivery_pct
+        description: "On-time delivery percentage"
+      - name: total_po_value_inr
+        description: "Total purchase order value in INR"
+      - name: avg_lead_time_days
+        description: "Average lead time in days"
+      - name: quality_rejection_rate_pct
+        description: "Percentage of received material scrapped"
+      - name: vendor_score
+        description: "Composite vendor performance score (0-100)"
+      - name: vendor_tier
+        description: "PREFERRED (>=85), APPROVED (>=60), UNDER_REVIEW (<60)"
+        tests:
+          - accepted_values:
+              values: ['PREFERRED', 'APPROVED', 'UNDER_REVIEW']

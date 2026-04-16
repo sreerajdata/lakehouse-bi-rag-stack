@@ -1,0 +1,79 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Kafka Consumer Lag by Topic",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 15 } } },
+      "targets": [{
+        "expr": "kafka_consumergroup_lag{topic=~\".*\"}",
+        "legendFormat": "{{topic}} / {{consumergroup}}"
+      }]
+    },
+    {
+      "id": 2,
+      "title": "Airflow DAG Success Rate",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "thresholds": { "steps": [{ "value": null, "color": "red" }, { "value": 0.8, "color": "yellow" }, { "value": 0.95, "color": "green" }] } } },
+      "targets": [{ "expr": "airflow_dag_run_success_total / (airflow_dag_run_success_total + airflow_dag_run_failed_total)", "legendFormat": "Success Rate" }]
+    },
+    {
+      "id": 3,
+      "title": "Spark Job Duration",
+      "type": "histogram",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [{ "expr": "spark_app_duration_seconds", "legendFormat": "{{app_name}}" }]
+    },
+    {
+      "id": 4,
+      "title": "SeaweedFS Storage Utilization",
+      "type": "gauge",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "unit": "bytes", "thresholds": { "steps": [{ "value": null, "color": "green" }, { "value": 80, "color": "yellow" }, { "value": 95, "color": "red" }] } } },
+      "targets": [{ "expr": "seaweedfs_volume_total_disk_size", "legendFormat": "Total Disk" }]
+    },
+    {
+      "id": 5,
+      "title": "Bronze / Silver / Gold Row Counts",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 4 },
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "targets": [
+        { "rawSql": "SELECT 'Bronze' AS layer, COUNT(*) AS rows FROM iceberg.bronze.mes_production_orders UNION ALL SELECT 'Silver', COUNT(*) FROM iceberg.silver.silver_mes_production_orders UNION ALL SELECT 'Gold', COUNT(*) FROM iceberg.gold.gold_manufacturing_oee_mart", "format": "table" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Failed Airflow Tasks (Last 24h)",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "targets": [{
+        "rawSql": "SELECT dag_id, task_id, execution_date, state, duration FROM airflow.task_instance WHERE state = 'failed' AND execution_date >= NOW() - INTERVAL '24 hours' ORDER BY execution_date DESC LIMIT 50",
+        "format": "table"
+      }]
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["pipeline", "health", "monitoring"],
+  "templating": {
+    "list": [
+      { "name": "plant", "type": "custom", "query": "Dahej-P1,Dahej-P2" },
+      { "name": "shift", "type": "custom", "query": "A,B,C" },
+      { "name": "date_range", "type": "custom", "query": "1h,6h,12h,24h,7d" }
+    ]
+  },
+  "time": { "from": "now-24h", "to": "now" },
+  "title": "Data Pipeline Health",
+  "uid": "tpl-pipeline-health",
+  "version": 1
+}

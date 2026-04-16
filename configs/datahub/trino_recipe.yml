@@ -1,0 +1,35 @@
+# ============================================================
+# DataHub Metadata Ingestion — Trino / Iceberg Source
+# Scans bronze, silver, and gold schemas via Trino connector
+# ============================================================
+
+source:
+  type: trino
+  config:
+    host_port: "trino:8080"
+    username: "admin"
+    database: "iceberg"
+    options:
+      connect_args:
+        http_scheme: "http"
+    schema_pattern:
+      allow:
+        - "bronze"
+        - "silver"
+        - "gold"
+    include_tables: true
+    include_views: true
+    profiling:
+      enabled: true
+      profile_table_level_only: true
+      include_field_null_count: true
+      include_field_min_value: true
+      include_field_max_value: true
+    stateful_ingestion:
+      enabled: true
+
+sink:
+  type: datahub-rest
+  config:
+    server: "http://datahub-gms:8080"
+    token: null

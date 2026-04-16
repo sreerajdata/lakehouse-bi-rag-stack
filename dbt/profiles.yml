@@ -1,0 +1,15 @@
+tpl_lakehouse:
+  target: dev
+  outputs:
+    dev:
+      type: trino
+      method: none
+      host: trino
+      port: 8080
+      database: iceberg
+      schema: silver
+      threads: 4
+      http_scheme: http
+      session_properties:
+        query_max_run_time: "60m"
+        exchange_compression: true
