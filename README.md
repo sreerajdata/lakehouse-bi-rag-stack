@@ -110,19 +110,33 @@ bash start_all.sh
 
 ---
 
-## 🔗 Service Registry
+## 🔗 Service Registry & Image Directory
 
-| Service | access Link | Default Credentials |
-| :--- | :--- | :--- |
-| **🚀 DataHub** | [http://localhost:9002](http://localhost:9002) | `datahub` / `datahub` |
-| **📅 Airflow** | [http://localhost:8280](http://localhost:8280) | `admin` / `admin` |
-| **🔍 Trino** | [http://localhost:8180](http://localhost:8180) | `admin` / (no pwd) |
-| **📈 Grafana** | [http://localhost:3000](http://localhost:3000) | `admin` / `admin123` |
-| **📓 JupyterHub** | [http://localhost:8400](http://localhost:8400) | `admin` / (create on login) |
-| **📊 Superset** | [http://localhost:8500](http://localhost:8500) | `admin` / `admin` |
-| **🤖 AI Chat** | [http://localhost:8501](http://localhost:8501) | *Guest Access* |
-| **🚢 Kafka UI** | [http://localhost:9000](http://localhost:9000) | *No Auth* |
-| **🔐 OpenBao** | [http://localhost:8200](http://localhost:8200) | `roottoken` |
+| Service / Tool | Access Link / Port | Docker Image / Build | Default Credentials |
+| :--- | :--- | :--- | :--- |
+| **🚀 DataHub (Frontend)** | [http://localhost:9002](http://localhost:9002) | `acryldata/datahub-frontend-react:v0.14.1` | `datahub` / `datahub` |
+| **🚀 DataHub (GMS)** | `tcp://8080` | `acryldata/datahub-gms:v0.14.1` | *(Internal API)* |
+| **📅 Apache Airflow** | [http://localhost:8280](http://localhost:8280) | `Custom Build (Local)` | `admin` / `admin` |
+| **🔍 Trino SQL** | [http://localhost:8180](http://localhost:8180) | `trinodb/trino:435` | `admin` / *(No Password)* |
+| **📈 Grafana** | [http://localhost:3000](http://localhost:3000) | `grafana/grafana:10.4.2` | `admin` / `admin123` |
+| **📓 JupyterHub** | [http://localhost:8400](http://localhost:8400) | `jupyter/datascience-notebook:latest` | `admin` / *(Set on first login)* |
+| **📊 Apache Superset** | [http://localhost:8500](http://localhost:8500) | `apache/superset:3.1.3` | `admin` / `admin` |
+| **🤖 Langchain AI Chat** | [http://localhost:8501](http://localhost:8501) | `Custom Build (Local)` | *(Guest Access)* |
+| **🚢 Kafka UI** | [http://localhost:9000](http://localhost:9000) | `provectuslabs/kafka-ui:latest` | *(No Auth)* |
+| **🔐 OpenBao (Vault)** | [http://localhost:8200](http://localhost:8200) | `openbao/openbao:latest` | `roottoken` *(Token)* |
+| **🐘 PostgreSQL** | `tcp://5432` | `postgres:13` | `admin` / `admin123` |
+| **🗃️ SeaweedFS** | [http://localhost:9333](http://localhost:9333) | `chrislusf/seaweedfs:3.63` | `admin` / `admin123` *(S3 Keys)* |
+| **⚙️ Apache Kafka** | `tcp://9092` | `confluentinc/cp-kafka:7.5.0` | *(Internal)* |
+| **🔄 Kafka Connect** | `tcp://8083` | `confluentinc/cp-kafka-connect:7.5.0` | *(Internal REST)* |
+| **🧬 Apache NiFi** | [http://localhost:8090](http://localhost:8090) | `apache/nifi:1.23.2` | `admin` / `adminadminadmin` |
+| **⚡ Apache Spark** | [http://localhost:8181](http://localhost:8181) | `bitnami/spark:3.4` | *(No Auth)* |
+| **🧠 Ollama LLM** | `tcp://11434` | `ollama/ollama:0.1.44` | *(Internal API)* |
+| **🎯 Milvus Vector DB** | `tcp://19530` | `milvusdb/milvus:v2.4.0` | *(No Auth)* |
+| **🛡️ OpenSearch** | [http://localhost:9200](http://localhost:9200) | `opensearchproject/opensearch:2.11.0` | `admin` / `Admin@123456` |
+| **🦊 GitLab CE** | [http://localhost:8929](http://localhost:8929) | `gitlab/gitlab-ce:16.7.0-ce.0` | *(Root Password in Logs)* |
+| **📈 Prometheus** | [http://localhost:9090](http://localhost:9090) | `prom/prometheus:v2.51.2` | *(No Auth)* |
+| **🪵 Loki** | `tcp://3100` | `grafana/loki:2.9.0` | *(Internal API)* |
+| **🧩 Apache Tika** | `tcp://9998` | `apache/tika:3.0.0.0` | *(Internal API)* |
 
 ---
 
