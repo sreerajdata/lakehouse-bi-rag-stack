@@ -148,6 +148,7 @@ class IQMSGenerator:
             "test_id": f"QT-{uuid.uuid4().hex[:8].upper()}",
             "batch_number": f"BATCH-{fake.numerify('######')}",
             "product_code": random.choice(PRODUCTS),
+            "machine_id": random.choice(MACHINES),
             "test_type": test,
             "result_value": round(random.uniform(95, 105), 3),
             "usl": 105.0,

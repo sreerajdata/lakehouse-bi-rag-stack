@@ -1,90 +1,40 @@
-{{
-  config(
-    materialized='incremental',
-    unique_key='document_number',
-    on_schema_change='append_new_columns',
-    tags=['silver', 'sap', 'inventory']
-  )
-}}
+{{ config(materialized='table') }}
 
-/*
-  Silver Layer: SAP ECC Inventory Movements
-  Source: bronze.sap_inventory_movements (Kafka CDC from SAP Oracle 9TB)
-  ALCOA+ compliant — full movement tracking for inventory audit trail
-*/
-
-WITH bronze_source AS (
-    SELECT
-        _kafka_key,
-        TRY(JSON_EXTRACT_SCALAR(_raw_payload, '$.document_number'))         AS document_number,
-        TRY(JSON_EXTRACT_SCALAR(_raw_payload, '$.movement_type'))           AS movement_type,
-        TRY(JSON_EXTRACT_SCALAR(_raw_payload, '$.movement_description'))    AS movement_description,
-        TRY(JSON_EXTRACT_SCALAR(_raw_payload, '$.material_code'))           AS material_code,
-        TRY(JSON_EXTRACT_SCALAR(_raw_payload, '$.plant'))                   AS plant,
-        TRY(JSON_EXTRACT_SCALAR(_raw_payload, '$.storage_location'))        AS storage_location,
-        TRY(CAST(JSON_EXTRACT_SCALAR(_raw_payload, '$.quantity') AS DOUBLE))            AS quantity,
-        TRY(JSON_EXTRACT_SCALAR(_raw_payload, '$.uom'))                     AS uom,
-        TRY(CAST(JSON_EXTRACT_SCALAR(_raw_payload, '$.posting_date') AS DATE))          AS posting_date,
-        TRY(JSON_EXTRACT_SCALAR(_raw_payload, '$.vendor_code'))             AS vendor_code,
-        TRY(JSON_EXTRACT_SCALAR(_raw_payload, '$.batch_number'))            AS batch_number,
-        TRY(CAST(JSON_EXTRACT_SCALAR(_raw_payload, '$.valuation_amount_inr') AS DOUBLE)) AS valuation_amount_inr,
-        _ingested_at,
-        _row_hash,
-        _kafka_offset,
-        _source_system,
-        _ingest_year,
-        _ingest_month,
-        _ingest_day
-    FROM {{ source('bronze', 'sap_inventory_movements') }}
-    {% if is_incremental() %}
-        WHERE _ingested_at > (SELECT MAX(_ingested_at) FROM {{ this }})
-    {% endif %}
-),
-
-cleaned AS (
-    SELECT
-        document_number,
-        movement_type,
-        movement_description,
-        material_code,
-        plant,
-        storage_location,
-        ABS(quantity)                                             AS quantity,
-        UPPER(TRIM(uom))                                         AS uom,
-        posting_date,
-        vendor_code,
-        batch_number,
-        COALESCE(valuation_amount_inr, 0.0)                      AS valuation_amount_inr,
-        -- Derived: classify movement_type into business categories
-        CASE
-            WHEN movement_type IN ('101', '501') THEN 'receipt'
-            WHEN movement_type IN ('261')        THEN 'issue'
-            WHEN movement_type IN ('311')        THEN 'transfer'
-            WHEN movement_type IN ('551')        THEN 'scrap'
-            ELSE 'other'
-        END                                                      AS movement_category,
-        -- Derived: running_balance_flag (+1 for inbound, -1 for outbound)
-        CASE
-            WHEN movement_type IN ('101', '501', '311') THEN  1
-            WHEN movement_type IN ('261', '551')        THEN -1
-            ELSE 0
-        END                                                      AS running_balance_flag,
-        -- Derived: posting month for aggregation
-        DATE_TRUNC('month', posting_date)                        AS posting_month,
-        -- ALCOA+ metadata
-        _ingested_at,
-        _row_hash,
-        _kafka_offset,
-        _source_system,
-        _ingest_year,
-        _ingest_month,
-        _ingest_day,
-        CURRENT_TIMESTAMP                                        AS _silver_loaded_at,
-        'TPL-Data-Engineering'                                   AS _data_owner
-    FROM bronze_source
-    WHERE document_number IS NOT NULL
-      AND quantity IS NOT NULL
-      AND quantity > 0
+with sap as (
+    select
+        cast(po_number as varchar) as po_number,
+        cast(material_code as varchar) as material_code,
+        cast(plant as varchar) as plant,
+        cast(storage_location as varchar) as storage_location,
+        cast(planned_qty as double) as planned_qty,
+        cast(actual_qty as double) as actual_qty,
+        cast(uom as varchar) as uom,
+        cast(posting_date as date) as posting_date,
+        cast(cost_center as varchar) as cost_center,
+        cast(total_cost as double) as total_cost,
+        cast(currency as varchar) as currency,
+        cast(_source as varchar) as _source,
+        cast(_ingested_at as timestamp) as _ingested_at,
+        cast(_nifi_flow as varchar) as _nifi_flow
+    from {{ source('bronze', 'sap_ecc_orders') }}
 )
-
-SELECT * FROM cleaned
+select
+    po_number,
+    material_code,
+    plant,
+    storage_location,
+    planned_qty,
+    actual_qty,
+    actual_qty - planned_qty as variance_qty,
+    greatest(actual_qty, 0) as closing_stock,
+    uom,
+    posting_date,
+    date_trunc('month', posting_date) as report_month,
+    cost_center,
+    total_cost,
+    round(total_cost / nullif(actual_qty, 0), 2) as unit_cost,
+    currency,
+    _source,
+    _ingested_at,
+    _nifi_flow
+from sap

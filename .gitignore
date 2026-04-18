@@ -41,3 +41,15 @@ ollama_data/
 *.tar
 *.tar.gz
 airgap-images/
+
+# dbt build artifacts and dependencies
+dbt/target/
+dbt/dbt_packages/
+dbt/dbt_modules/
+*.log
+
+# Great Expectations temporary files
+gx/uncommitted/
+
+# Temporary files
+trino_threads.txt

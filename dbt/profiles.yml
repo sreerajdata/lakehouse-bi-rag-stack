@@ -8,6 +8,7 @@ tpl_lakehouse:
       port: 8080
       database: iceberg
       schema: silver
+      user: admin
       threads: 4
       http_scheme: http
       session_properties:

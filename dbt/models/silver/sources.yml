@@ -1,78 +1,17 @@
-# ============================================================
-# Bronze Source Declarations for Silver Layer
-# All raw Kafka → Iceberg bronze tables
-# ============================================================
-
 version: 2
 
 sources:
   - name: bronze
-    description: "Raw bronze layer tables — Kafka CDC events stored as Iceberg with ALCOA+ metadata"
     database: iceberg
     schema: bronze
     tables:
+      - name: mes_events
       - name: mes_production_orders
-        description: "MES production orders from Manufacturing Execution System (MSSQL 4.7TB)"
-        columns:
-          - name: _raw_payload
-            description: "Raw JSON payload from Kafka"
-          - name: _kafka_offset
-            description: "Kafka partition offset for exactly-once tracking"
-          - name: _ingested_at
-            description: "ALCOA+ timestamp of bronze ingestion"
-          - name: _row_hash
-            description: "SHA-256 hash for data integrity verification"
-          - name: _source_system
-            description: "Source system identifier (MES)"
-
-      - name: iqms_quality_tests
-        description: "IQMS quality test results — hardness, dissolution, assay, moisture, etc. (MSSQL 2.2TB)"
-        columns:
-          - name: _raw_payload
-            description: "Raw JSON payload from Kafka"
-          - name: _ingested_at
-            description: "ALCOA+ ingestion timestamp"
-
       - name: iqms_deviations
-        description: "IQMS non-conformance deviations with severity classification"
-        columns:
-          - name: _raw_payload
-            description: "Raw JSON payload from Kafka"
-          - name: _ingested_at
-            description: "ALCOA+ ingestion timestamp"
-
-      - name: trackwise_capas
-        description: "Trackwise CAPA lifecycle records — corrective and preventive actions (MSSQL 1.3TB)"
-        columns:
-          - name: _raw_payload
-            description: "Raw JSON payload from Kafka"
-          - name: _ingested_at
-            description: "ALCOA+ ingestion timestamp"
-
-      - name: sap_inventory_movements
-        description: "SAP ECC inventory movement documents — GR, GI, transfers, scrapping (Oracle 9TB)"
-        columns:
-          - name: _raw_payload
-            description: "Raw JSON payload from Kafka"
-          - name: _ingested_at
-            description: "ALCOA+ ingestion timestamp"
-
+      - name: iqms_orders
+      - name: iqms_quality_tests
       - name: tms_training_completions
-        description: "TMS training completion records for GMP compliance tracking (MSSQL 257GB)"
-        columns:
-          - name: _raw_payload
-            description: "Raw JSON payload from Kafka"
-          - name: _ingested_at
-            description: "ALCOA+ ingestion timestamp"
-
-      - name: mes_machine_status
-        description: "Real-time machine status events from MES"
-        columns:
-          - name: _raw_payload
-            description: "Raw JSON payload from Kafka"
-
-      - name: historian_process_params
-        description: "High-frequency time-series OPC-UA data from Historian/L2 (2.4TB)"
-        columns:
-          - name: _raw_payload
-            description: "Raw JSON payload from Kafka"
+      - name: trackwise_capas
+      - name: trackwise_deviations
+      - name: sap_ecc_orders
+      - name: sop_documents

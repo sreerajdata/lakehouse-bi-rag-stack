@@ -13,7 +13,7 @@ DATA SOURCES  →  INGESTION  →  BRONZE  →  SILVER  →  GOLD  →  SERVING
 
 **Storage Backend:** SeaweedFS S3 (replaces Dell ObjectScale)
 **Table Format:** Apache Iceberg (ACID, time-travel, schema evolution)
-**Compute:** Apache Spark 3.5
+**Compute:** Apache Spark 3.4
 **Orchestration:** Apache Airflow 2.8
 **Transformation:** dbt Core (Trino dialect)
 **Query Engine:** Apache Trino 435

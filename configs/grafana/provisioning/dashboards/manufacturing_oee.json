@@ -12,7 +12,7 @@
       "title": "OEE Score",
       "type": "gauge",
       "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
-      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "tpl-postgres" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -37,7 +37,7 @@
       "title": "Availability / Performance / Quality (7-Day Trend)",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 6, "y": 0 },
-      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "tpl-postgres" },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "palette-classic" },
@@ -55,7 +55,7 @@
       "title": "Production Volume by Machine",
       "type": "barchart",
       "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
-      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "tpl-postgres" },
       "targets": [{
         "rawSql": "SELECT machine_id, SUM(total_actual_qty) AS volume FROM iceberg.gold.gold_manufacturing_oee_mart WHERE production_date >= CURRENT_DATE - INTERVAL '7' DAY AND plant = '$plant' GROUP BY machine_id ORDER BY volume DESC LIMIT 10",
         "format": "table"
@@ -66,7 +66,7 @@
       "title": "Top 5 Machines by Scrap Percentage",
       "type": "table",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-      "datasource": { "type": "postgres", "uid": "${DS_POSTGRESQL}" },
+      "datasource": { "type": "postgres", "uid": "tpl-postgres" },
       "targets": [{
         "rawSql": "SELECT machine_id, plant, AVG(avg_scrap_pct) AS avg_scrap_pct, SUM(total_rejected_qty) AS total_rejected FROM iceberg.gold.gold_manufacturing_oee_mart WHERE production_date >= CURRENT_DATE - INTERVAL '7' DAY GROUP BY machine_id, plant ORDER BY avg_scrap_pct DESC LIMIT 5",
         "format": "table"
@@ -77,7 +77,7 @@
       "title": "Real-Time Machine Status",
       "type": "state-timeline",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "datasource": { "type": "prometheus", "uid": "tpl-prometheus" },
       "targets": [{
         "expr": "machine_status_gauge{plant=~\"$plant\"}",
         "legendFormat": "{{machine_id}}"

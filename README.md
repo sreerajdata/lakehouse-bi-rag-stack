@@ -11,6 +11,12 @@ A production-ready, airgapped **Enterprise Data Lakehouse** stack built on Docke
 
 ---
 
+## Stack Guide
+
+For the practical startup order, data execution flow, current readiness, and recommended next implementation steps, see [docs/STACK_EXECUTION_GUIDE.md](docs/STACK_EXECUTION_GUIDE.md).
+
+---
+
 ## 🏗️ Architecture Overview
 
 The stack implements a modern data platform using the Medallion architecture pattern, ensuring data quality and lineage from raw ingestion to high-value analytics.
@@ -64,7 +70,7 @@ graph LR
 
 ### 💎 Medallion Architecture
 - **Bronze**: Raw data captured via Kafka/NiFi with ALCOA+ metadata.
-- **Silver**: Cleaned, filtered, and augmented data using Spark 3.5.
+- **Silver**: Cleaned, filtered, and augmented data using Spark 3.4.
 - **Gold**: Business-level aggregates and high-performance marts built via dbt.
 
 ### 🤖 Generative AI & RAG

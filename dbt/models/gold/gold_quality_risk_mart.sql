@@ -1,122 +1,90 @@
-{{
-  config(
-    materialized='table',
-    tags=['gold', 'quality', 'risk', 'batch_release']
-  )
-}}
+{{ config(materialized='table') }}
 
-/*
-  Gold Layer: Quality Risk Assessment Mart
-  Grain: product_code + batch_number
-  Joins: silver_mes + silver_iqms_quality_tests + silver_iqms_deviations
-  Powers: batch release decisions, risk scoring, quality trend analysis
-  21 CFR Part 11 / ALCOA+ aligned
-*/
-
-WITH production AS (
-    SELECT
+with production as (
+    select
         product_code,
         batch_number,
-        COUNT(*)                     AS total_production_orders,
-        SUM(actual_qty)              AS total_actual_qty,
-        SUM(rejected_qty)            AS total_rejected_qty,
-        AVG(yield_pct)               AS avg_yield_pct,
-        AVG(scrap_pct)               AS avg_scrap_pct
-    FROM {{ ref('silver_mes_production_orders') }}
-    GROUP BY 1, 2
+        count(*) as total_production_orders,
+        sum(actual_qty) as total_actual_qty,
+        sum(rejected_qty) as total_rejected_qty,
+        avg(yield_pct) as avg_yield_pct,
+        avg(scrap_pct) as avg_scrap_pct
+    from {{ ref('silver_mes_production_orders') }}
+    group by 1, 2
 ),
-
-quality_tests AS (
-    SELECT
+quality_tests as (
+    select
         product_code,
         batch_number,
-        COUNT(*)                                                 AS total_tests,
-        COUNTIF(pass_fail_flag = TRUE)                          AS passed_tests,
-        COUNTIF(pass_fail_flag = FALSE)                         AS failed_tests,
-        ROUND(
-            CAST(COUNTIF(pass_fail_flag = TRUE) AS DOUBLE) /
-            NULLIF(COUNT(*), 0) * 100, 2
-        )                                                        AS pass_rate,
-        AVG(result_value)                                        AS avg_result_value,
-        AVG(deviation_from_mean)                                 AS avg_deviation_from_mean,
-        COUNTIF(spec_status = 'ABOVE_USL')                      AS above_usl_count,
-        COUNTIF(spec_status = 'BELOW_LSL')                      AS below_lsl_count
-    FROM {{ ref('silver_iqms_quality_tests') }}
-    GROUP BY 1, 2
+        count(*) as total_tests,
+        count_if(pass_fail_flag = true) as passed_tests,
+        count_if(pass_fail_flag = false) as failed_tests,
+        round(cast(count_if(pass_fail_flag = true) as double) / nullif(count(*), 0) * 100, 2) as pass_rate,
+        avg(result_value) as avg_result_value,
+        avg(deviation_from_mean) as avg_deviation_from_mean,
+        count_if(spec_status = 'ABOVE_USL') as above_usl_count,
+        count_if(spec_status = 'BELOW_LSL') as below_lsl_count
+    from {{ ref('silver_iqms_quality_tests') }}
+    group by 1, 2
 ),
-
-deviations AS (
-    SELECT
+deviations as (
+    select
         product_code,
         batch_number,
-        COUNT(*)                                                 AS total_deviations,
-        COUNTIF(is_open = TRUE)                                 AS open_deviations,
-        COUNTIF(severity = 'CRITICAL')                          AS critical_deviation_count,
-        COUNTIF(severity = 'MAJOR')                             AS major_deviation_count,
-        COUNTIF(severity = 'MINOR')                             AS minor_deviation_count,
-        AVG(severity_score)                                      AS avg_severity_score,
-        MAX(severity_score)                                      AS max_severity_score
-    FROM {{ ref('silver_iqms_deviations') }}
-    GROUP BY 1, 2
-),
-
-final AS (
-    SELECT
-        COALESCE(p.product_code, qt.product_code, d.product_code) AS product_code,
-        COALESCE(p.batch_number, qt.batch_number, d.batch_number) AS batch_number,
-        -- Production metrics
-        COALESCE(p.total_production_orders, 0)   AS total_production_orders,
-        COALESCE(p.total_actual_qty, 0)          AS total_actual_qty,
-        COALESCE(p.total_rejected_qty, 0)        AS total_rejected_qty,
-        COALESCE(p.avg_yield_pct, 0)             AS avg_yield_pct,
-        -- Quality test metrics
-        COALESCE(qt.total_tests, 0)              AS total_tests,
-        COALESCE(qt.passed_tests, 0)             AS passed_tests,
-        COALESCE(qt.failed_tests, 0)             AS failed_tests,
-        COALESCE(qt.pass_rate, 0)                AS pass_rate,
-        -- Deviation metrics
-        COALESCE(d.total_deviations, 0)          AS total_deviations,
-        COALESCE(d.open_deviations, 0)           AS open_deviations,
-        COALESCE(d.critical_deviation_count, 0)  AS critical_deviation_count,
-        COALESCE(d.major_deviation_count, 0)     AS major_deviation_count,
-        -- Batch release decision
-        CASE
-            WHEN d.critical_deviation_count > 0 OR d.open_deviations > 0
-                THEN 'PENDING'
-            WHEN qt.pass_rate IS NULL
-                THEN 'PENDING'
-            WHEN qt.pass_rate >= 95.0 AND COALESCE(d.critical_deviation_count, 0) = 0
-                THEN 'PASS'
-            WHEN qt.pass_rate < 80.0 OR d.critical_deviation_count > 0
-                THEN 'FAIL'
-            ELSE 'PENDING'
-        END                                      AS batch_release_status,
-        -- Overall risk score (0-100, higher = more risk)
-        ROUND(
-            LEAST(100.0,
-                (100.0 - COALESCE(qt.pass_rate, 50.0))
-                + COALESCE(d.critical_deviation_count, 0) * 20.0
-                + COALESCE(d.major_deviation_count, 0) * 10.0
-                + COALESCE(d.minor_deviation_count, 0) * 3.0
-                + CASE WHEN COALESCE(p.avg_yield_pct, 100) < 85 THEN 15.0 ELSE 0.0 END
-            ), 2
-        )                                        AS overall_risk_score,
-        -- Risk RAG status
-        CASE
-            WHEN COALESCE(d.critical_deviation_count, 0) > 0 THEN 'RED'
-            WHEN COALESCE(d.open_deviations, 0) > 2 OR COALESCE(qt.pass_rate, 100) < 90 THEN 'AMBER'
-            ELSE 'GREEN'
-        END                                      AS risk_rag_status,
-        -- Audit
-        CURRENT_TIMESTAMP                        AS _gold_loaded_at,
-        'tpl_lakehouse.dbt'                      AS _data_source
-    FROM production p
-    FULL OUTER JOIN quality_tests qt
-        ON p.product_code = qt.product_code AND p.batch_number = qt.batch_number
-    FULL OUTER JOIN deviations d
-        ON COALESCE(p.product_code, qt.product_code) = d.product_code
-        AND COALESCE(p.batch_number, qt.batch_number) = d.batch_number
+        count(*) as total_deviations,
+        count_if(is_open = true) as open_deviations,
+        count_if(severity = 'CRITICAL') as critical_deviation_count,
+        count_if(severity = 'MAJOR') as major_deviation_count,
+        count_if(severity = 'MINOR') as minor_deviation_count,
+        avg(severity_score) as avg_severity_score,
+        max(severity_score) as max_severity_score
+    from {{ ref('silver_iqms_deviations') }}
+    group by 1, 2
 )
-
-SELECT * FROM final
-ORDER BY overall_risk_score DESC, product_code
+select
+    coalesce(p.product_code, qt.product_code, d.product_code) as product_code,
+    coalesce(p.batch_number, qt.batch_number, d.batch_number) as batch_number,
+    coalesce(p.total_production_orders, 0) as total_production_orders,
+    coalesce(p.total_actual_qty, 0) as total_actual_qty,
+    coalesce(p.total_rejected_qty, 0) as total_rejected_qty,
+    coalesce(p.avg_yield_pct, 0) as avg_yield_pct,
+    coalesce(qt.total_tests, 0) as total_tests,
+    coalesce(qt.passed_tests, 0) as passed_tests,
+    coalesce(qt.failed_tests, 0) as failed_tests,
+    coalesce(qt.pass_rate, 0) as pass_rate,
+    coalesce(d.total_deviations, 0) as total_deviations,
+    coalesce(d.open_deviations, 0) as open_deviations,
+    coalesce(d.critical_deviation_count, 0) as critical_deviation_count,
+    coalesce(d.major_deviation_count, 0) as major_deviation_count,
+    case
+        when d.critical_deviation_count > 0 or d.open_deviations > 0 then 'PENDING'
+        when qt.pass_rate is null then 'PENDING'
+        when qt.pass_rate >= 95.0 and coalesce(d.critical_deviation_count, 0) = 0 then 'PASS'
+        when qt.pass_rate < 80.0 or d.critical_deviation_count > 0 then 'FAIL'
+        else 'PENDING'
+    end as batch_release_status,
+    round(
+        least(
+            100.0,
+            (100.0 - coalesce(qt.pass_rate, 50.0))
+            + coalesce(d.critical_deviation_count, 0) * 20.0
+            + coalesce(d.major_deviation_count, 0) * 10.0
+            + coalesce(d.minor_deviation_count, 0) * 3.0
+            + case when coalesce(p.avg_yield_pct, 100) < 85 then 15.0 else 0.0 end
+        ),
+        2
+    ) as overall_risk_score,
+    case
+        when coalesce(d.critical_deviation_count, 0) > 0 then 'RED'
+        when coalesce(d.open_deviations, 0) > 2 or coalesce(qt.pass_rate, 100) < 90 then 'AMBER'
+        else 'GREEN'
+    end as risk_rag_status,
+    current_timestamp as _gold_loaded_at,
+    'tpl_lakehouse.dbt' as _data_source
+from production p
+full outer join quality_tests qt
+    on p.product_code = qt.product_code
+   and p.batch_number = qt.batch_number
+full outer join deviations d
+    on coalesce(p.product_code, qt.product_code) = d.product_code
+   and coalesce(p.batch_number, qt.batch_number) = d.batch_number

@@ -148,7 +148,7 @@ IMAGES = \
   confluentinc/cp-kafka-connect:7.5.0 \
   provectuslabs/kafka-ui:latest \
   apache/nifi:1.23.2 \
-  bitnami/spark:3.5 \
+  bitnami/spark:3.4 \
   apache/airflow:2.8.1 \
   redis:7-alpine \
   ghcr.io/dbt-labs/dbt-trino:1.7.2 \

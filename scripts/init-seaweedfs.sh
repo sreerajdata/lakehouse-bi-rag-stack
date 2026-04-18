@@ -5,7 +5,7 @@
 set -e
 
 ENDPOINT="http://seaweedfs-s3:8333"
-BUCKETS="lakehouse-bronze lakehouse-silver lakehouse-gold lakehouse-models lakehouse-docs milvus-bucket"
+BUCKETS="bronze silver gold lakehouse-bronze lakehouse-silver lakehouse-gold lakehouse-models lakehouse-docs milvus-bucket"
 
 echo "Waiting for SeaweedFS S3 to be ready..."
 until aws --endpoint-url=$ENDPOINT s3 ls > /dev/null 2>&1; do
@@ -23,8 +23,9 @@ for BUCKET in $BUCKETS; do
   fi
 done
 
-# Create directory structure in bronze bucket
+# Create directory structure in bronze buckets
 for SYSTEM in mes iqms historian trackwise sap tms nifi_flows docs; do
+  aws --endpoint-url=$ENDPOINT s3api put-object --bucket bronze --key "${SYSTEM}/" > /dev/null 2>&1 || true
   aws --endpoint-url=$ENDPOINT s3api put-object --bucket lakehouse-bronze --key "${SYSTEM}/" > /dev/null 2>&1 || true
 done
 

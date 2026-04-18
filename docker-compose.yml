@@ -6,7 +6,9 @@
 # ============================================================
 
 x-airflow-common: &airflow-common
-  image: apache/airflow:2.8.1
+  build:
+    context: ./dockerfiles/airflow
+    dockerfile: Dockerfile
   environment: &airflow-env
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
     AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
@@ -17,9 +19,12 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__API__AUTH_BACKENDS: "airflow.api.auth.backend.basic_auth"
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
-    _PIP_ADDITIONAL_REQUIREMENTS: "apache-airflow-providers-apache-spark apache-airflow-providers-apache-kafka great-expectations pandas faker"
   volumes:
     - ./configs/airflow/dags:/opt/airflow/dags
+    - ./scripts:/opt/airflow/scripts
+    - ./data:/opt/airflow/data
+    - ./dbt:/opt/airflow/dbt
+    - ./great_expectations:/opt/airflow/great_expectations
     - airflow_logs:/opt/airflow/logs
     - airflow_plugins:/opt/airflow/plugins
   depends_on:
@@ -335,6 +340,7 @@ services:
         confluent-hub install --no-prompt debezium/debezium-connector-mysql:2.4.2
         confluent-hub install --no-prompt debezium/debezium-connector-postgresql:2.4.2
         confluent-hub install --no-prompt debezium/debezium-connector-sqlserver:2.4.2
+        confluent-hub install --no-prompt confluentinc/kafka-connect-s3:12.1.4
         /etc/confluent/docker/run
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8083/connectors"]
@@ -359,6 +365,7 @@ services:
       KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
     ports:
       - "9000:8080"
+      - "9021:8080"
     depends_on:
       - kafka
     networks:
@@ -375,6 +382,7 @@ services:
       SINGLE_USER_CREDENTIALS_USERNAME: ${NIFI_USER:-admin}
       SINGLE_USER_CREDENTIALS_PASSWORD: ${NIFI_PASS:-adminadminadmin}
     volumes:
+      - ./data:/opt/nifi/data
       - nifi_conf:/opt/nifi/nifi-current/conf
       - nifi_content:/opt/nifi/nifi-current/content_repository
       - nifi_database:/opt/nifi/nifi-current/database_repository
@@ -400,11 +408,14 @@ services:
       - SPARK_MASTER_WEBUI_PORT=8181
       - SPARK_EXTRA_CLASSPATH=/opt/bitnami/spark/jars/*
     volumes:
+      - ./scripts:/opt/lakehouse/scripts
+      - ./data:/opt/lakehouse/data
       - ./configs/spark/spark-defaults.conf:/opt/bitnami/spark/conf/spark-defaults.conf
       - spark_jars:/opt/bitnami/spark/jars
     ports:
       - "7077:7077"
       - "8181:8181"
+      - "8998:8181"
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/localhost/8181'"]
       interval: 15s
@@ -465,6 +476,7 @@ services:
     command: webserver
     ports:
       - "8280:8080"
+      - "8793:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
       interval: 30s
@@ -493,10 +505,11 @@ services:
 
   # dbt Core (run via Airflow or standalone)
   dbt:
-    image: bitnami/spark:3.4
+    build:
+      context: ./dockerfiles/dbt
+      dockerfile: Dockerfile
     container_name: lakehouse_dbt
     profiles: ["processing", "all"]
-    user: root
     entrypoint: ["tail", "-f", "/dev/null"]
     volumes:
       - ./dbt:/usr/app/dbt
@@ -504,12 +517,30 @@ services:
     networks:
       - lakehouse_net
 
-  # Apache Tika (content extraction)
-  tika:
-    image: bitnami/spark:3.4
-    container_name: lakehouse_tika
+  great-expectations:
+    build:
+      context: ./dockerfiles/great-expectations
+      dockerfile: Dockerfile
+    container_name: lakehouse_great_expectations
     profiles: ["processing", "all"]
     entrypoint: ["tail", "-f", "/dev/null"]
+    volumes:
+      - ./:/workspace
+    working_dir: /workspace
+    environment:
+      TRINO_HOST: trino
+      TRINO_PORT: 8080
+      TRINO_CATALOG: iceberg
+      TRINO_SCHEMA: silver
+      TRINO_USER: admin
+    networks:
+      - lakehouse_net
+
+  # Apache Tika (content extraction)
+  tika:
+    image: apache/tika:3.0.0.0
+    container_name: lakehouse_tika
+    profiles: ["processing", "all"]
     ports:
       - "9998:9998"
     networks:
@@ -574,6 +605,7 @@ services:
       - trino_data:/data/trino
     ports:
       - "8180:8080"
+      - "8080:8080"
     depends_on:
       hive-metastore:
         condition: service_started
@@ -619,6 +651,7 @@ services:
       - ./configs/superset/superset_config.py:/app/pythonpath/superset_config.py
     ports:
       - "8500:8088"
+      - "8088:8088"
     depends_on:
       postgres:
         condition: service_healthy
@@ -916,9 +949,19 @@ services:
           - datahub-mysql
 
   datahub-gms:
-    image: acryldata/datahub-gms:head
+    image: acryldata/datahub-gms:v0.14.1
     container_name: lakehouse_datahub_gms
+    user: "0"
     profiles: ["governance", "all"]
+    restart: unless-stopped
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mkdir -p /metadata-models/src/main/resources
+        cp /datahub/datahub-gms/resources/entity-registry.yml /metadata-models/src/main/resources/entity-registry.yml
+        exec /datahub/datahub-gms/scripts/start.sh
     environment:
       DATAHUB_SERVER_TYPE: quickstart
       EBEAN_DATASOURCE_USERNAME: datahub
@@ -941,6 +984,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      datahub-neo4j:
+        condition: service_started
     networks:
       - lakehouse_net
 
@@ -948,6 +993,7 @@ services:
     image: neo4j:4.4.9
     container_name: lakehouse_datahub_neo4j
     profiles: ["governance", "all"]
+    restart: unless-stopped
     environment:
       NEO4J_AUTH: neo4j/datahub
       NEO4J_dbms_default__database: graph.db
@@ -959,15 +1005,17 @@ services:
       - lakehouse_net
 
   datahub-frontend:
-    image: acryldata/datahub-frontend-react:head
+    image: acryldata/datahub-frontend-react:v0.14.1
     container_name: lakehouse_datahub_frontend
     profiles: ["governance", "all"]
+    restart: unless-stopped
     environment:
       DATAHUB_GMS_HOST: datahub-gms
       DATAHUB_GMS_PORT: "8080"
       DATAHUB_SECRET: YouKnowNothing
       DATAHUB_APP_VERSION: "1.0"
       DATAHUB_PLAY_MEM_BUFFER_SIZE: "10MB"
+      KAFKA_BOOTSTRAP_SERVER: kafka:9092
       JAVA_OPTS: "-Xms512m -Xmx512m -Dhttp.port=9002 -Dconfig.file=datahub-frontend/conf/application.conf"
     ports:
       - "9002:9002"

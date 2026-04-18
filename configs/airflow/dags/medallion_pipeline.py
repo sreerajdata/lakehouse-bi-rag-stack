@@ -1,251 +1,267 @@
-"""
-TPL Data Lakehouse - Master Medallion Pipeline DAG
-Orchestrates: Kafka → Bronze → Silver → Gold via Spark + dbt
-"""
+from __future__ import annotations
 
+import re
+import subprocess
 from datetime import datetime, timedelta
+from pathlib import Path
+import os
+from typing import Optional
+
 from airflow import DAG
-from airflow.operators.python import PythonOperator, BranchPythonOperator
 from airflow.operators.bash import BashOperator
-from airflow.operators.empty import EmptyOperator
+from airflow.operators.python import PythonOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
-from airflow.utils.task_group import TaskGroup
-import logging
+from airflow.providers.trino.operators.trino import TrinoOperator
+from sqlalchemy import create_engine, text
 
-log = logging.getLogger(__name__)
+from confluent_kafka import Consumer, TopicPartition
+from confluent_kafka.admin import AdminClient
 
-# ── DAG Defaults ──────────────────────────────────────────────────────────────
-default_args = {
-    "owner": "data-engineering",
-    "depends_on_past": False,
-    "email_on_failure": False,
-    "retries": 2,
-    "retry_delay": timedelta(minutes=5),
-    "execution_timeout": timedelta(hours=2),
+
+ROOT_DIR = Path("/opt/airflow")
+SCRIPTS_DIR = ROOT_DIR / "scripts"
+DBT_DIR = ROOT_DIR / "dbt"
+KAFKA_BOOTSTRAP = "kafka:9092"
+TOPIC_MAP = {
+    "mes_events": "raw.mes.events",
+    "iqms_orders": "raw.iqms.orders",
+    "trackwise_deviations": "raw.trackwise.deviations",
+    "sap_ecc_orders": "raw.sap.orders",
+    "sop_documents": "raw.sop.documents",
 }
-
-# ── S3 / SeaweedFS Paths ──────────────────────────────────────────────────────
-S3_ENDPOINT   = "http://seaweedfs-s3:8333"
-BRONZE_PATH   = "s3a://lakehouse-bronze"
-SILVER_PATH   = "s3a://lakehouse-silver"
-GOLD_PATH     = "s3a://lakehouse-gold"
-
+TRINO_SQLALCHEMY_URL = "trino://admin@trino:8080/iceberg"
+SPARK_PACKAGES = ",".join(
+    [
+        "org.apache.iceberg:iceberg-spark-runtime-3.4_2.12:1.4.3",
+        "org.apache.hadoop:hadoop-aws:3.3.4",
+    ]
+)
 SPARK_CONF = {
     "spark.master": "spark://spark-master:7077",
-    "spark.hadoop.fs.s3a.endpoint": S3_ENDPOINT,
+    "spark.submit.deployMode": "client",
+    "spark.pyspark.driver.python": "/usr/local/bin/python",
+    "spark.pyspark.python": "/opt/bitnami/python/bin/python3",
+    "spark.hadoop.fs.s3a.endpoint": "http://seaweedfs-s3:8333",
     "spark.hadoop.fs.s3a.access.key": "admin",
     "spark.hadoop.fs.s3a.secret.key": "admin123",
     "spark.hadoop.fs.s3a.path.style.access": "true",
-    "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
     "spark.hadoop.fs.s3a.connection.ssl.enabled": "false",
+    "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
     "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
     "spark.sql.catalog.lakehouse": "org.apache.iceberg.spark.SparkCatalog",
     "spark.sql.catalog.lakehouse.type": "hive",
     "spark.sql.catalog.lakehouse.uri": "thrift://hive-metastore:9083",
-    "spark.sql.catalog.lakehouse.warehouse": f"{GOLD_PATH}/warehouse",
+    "spark.sql.catalog.lakehouse.warehouse": "s3a://bronze/iceberg",
 }
 
-# ── DAG ───────────────────────────────────────────────────────────────────────
+
+def run_python_script(script_name: str, extra_env: Optional[dict] = None) -> str:
+    script_path = SCRIPTS_DIR / script_name
+    env = os.environ.copy()
+    if extra_env:
+        env.update(extra_env)
+    result = subprocess.run(
+        ["python", str(script_path)],
+        cwd=str(ROOT_DIR),
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print(result.stderr)
+    if result.returncode != 0:
+        raise RuntimeError(f"{script_name} failed with exit code {result.returncode}")
+    return result.stdout
+
+
+def generate_source_data_task():
+    return run_python_script("generate_source_data.py")
+
+
+def publish_to_kafka_task():
+    return run_python_script("kafka_producer.py", {"KAFKA_BOOTSTRAP_SERVERS": KAFKA_BOOTSTRAP})
+
+
+def check_kafka_topics_task():
+    admin = AdminClient({"bootstrap.servers": KAFKA_BOOTSTRAP})
+    metadata = admin.list_topics(timeout=15)
+    consumer = Consumer(
+        {
+            "bootstrap.servers": KAFKA_BOOTSTRAP,
+            "group.id": "airflow-topic-check",
+            "enable.auto.commit": False,
+            "auto.offset.reset": "earliest",
+        }
+    )
+    counts = {}
+    try:
+        for topic in TOPIC_MAP.values():
+            if topic not in metadata.topics:
+                raise RuntimeError(f"Kafka topic {topic} does not exist")
+            topic_meta = metadata.topics[topic]
+            if topic_meta.error is not None:
+                raise RuntimeError(f"Kafka topic {topic} metadata error: {topic_meta.error}")
+
+            topic_count = 0
+            for partition_id in topic_meta.partitions:
+                low, high = consumer.get_watermark_offsets(TopicPartition(topic, partition_id), timeout=10)
+                topic_count += max(high - low, 0)
+
+            print(f"{topic}: {topic_count} messages")
+            if topic_count <= 0:
+                raise RuntimeError(f"Kafka topic {topic} has no messages")
+            counts[topic] = topic_count
+    finally:
+        consumer.close()
+    return counts
+
+
+def run_gx_validation_task():
+    output = run_python_script("run_gx_validation.py")
+    matches = re.findall(r"Checkpoint .*?: (\d+)/(\d+) expectations passed", output)
+    passed = sum(int(match[0]) for match in matches)
+    total = sum(int(match[1]) for match in matches)
+    return {"passed": passed, "total": total}
+
+
+def query_scalar(sql: str) -> int:
+    engine = create_engine(TRINO_SQLALCHEMY_URL)
+    with engine.connect() as connection:
+        value = connection.execute(text(sql)).scalar()
+    return int(value or 0)
+
+
+def notify_pipeline_complete_task(ti=None, **_kwargs):
+    bronze_rows = sum(
+        query_scalar(f"select count(*) from iceberg.bronze.{table}")
+        for table in [
+            "mes_events",
+            "iqms_orders",
+            "trackwise_deviations",
+            "sap_ecc_orders",
+            "sop_documents",
+        ]
+    )
+    silver_rows = sum(
+        query_scalar(f"select count(*) from iceberg.silver.{table}")
+        for table in [
+            "silver_mes_events",
+            "silver_quality_events",
+            "silver_production_orders",
+        ]
+    )
+    gold_rows = sum(
+        query_scalar(f"select count(*) from iceberg.gold.{table}")
+        for table in [
+            "gold_oee_dashboard",
+            "gold_batch_summary",
+            "gold_quality_kpis",
+            "gold_production_efficiency",
+        ]
+    )
+    gx_summary = ti.xcom_pull(task_ids="run_gx_validation") or {"passed": 0, "total": 0}
+    start = ti.dag_run.start_date
+    end = datetime.utcnow()
+    duration_minutes = round((end - start.replace(tzinfo=None)).total_seconds() / 60.0, 2) if start else 0
+    summary = (
+        f"Pipeline complete: {bronze_rows} bronze rows -> {silver_rows} silver rows -> {gold_rows} gold rows\n"
+        f"Quality: {gx_summary['passed']}/{gx_summary['total']} GX expectations passed\n"
+        f"Duration: {duration_minutes} minutes"
+    )
+    print(summary)
+    return summary
+
+
+default_args = {
+    "owner": "data-platform",
+    "depends_on_past": False,
+    "retries": 1,
+    "retry_delay": timedelta(minutes=2),
+}
+
+
 with DAG(
-    dag_id="tpl_medallion_pipeline",
-    description="Full Bronze → Silver → Gold Medallion Pipeline",
+    dag_id="medallion_full_pipeline",
+    description="End-to-end lakehouse demo pipeline",
     default_args=default_args,
     start_date=datetime(2024, 1, 1),
-    schedule_interval="0 * * * *",   # every hour
+    schedule="*/15 * * * *",
     catchup=False,
     max_active_runs=1,
-    tags=["lakehouse", "medallion", "tpl"],
+    tags=["lakehouse", "demo", "medallion"],
 ) as dag:
-
-    start = EmptyOperator(task_id="start")
-    end   = EmptyOperator(task_id="end")
-
-    # ── Bronze Layer: Kafka → Raw Iceberg Tables ──────────────────────────────
-    with TaskGroup("bronze_ingestion", tooltip="Kafka → Bronze Iceberg") as bronze_group:
-
-        bronze_mes = SparkSubmitOperator(
-            task_id="bronze_mes",
-            application="/opt/airflow/dags/spark_jobs/bronze_kafka_to_iceberg.py",
-            conf=SPARK_CONF,
-            application_args=["--topic", "mes.production_orders",
-                               "--table", "lakehouse.bronze.mes_production_orders",
-                               "--path", f"{BRONZE_PATH}/mes/production_orders"],
-            packages="org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.3,"
-                     "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,"
-                     "org.apache.hadoop:hadoop-aws:3.3.4",
-        )
-
-        bronze_mes_status = SparkSubmitOperator(
-            task_id="bronze_mes_machine_status",
-            application="/opt/airflow/dags/spark_jobs/bronze_kafka_to_iceberg.py",
-            conf=SPARK_CONF,
-            application_args=["--topic", "mes.machine_status",
-                               "--table", "lakehouse.bronze.mes_machine_status",
-                               "--path", f"{BRONZE_PATH}/mes/machine_status"],
-            packages="org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.3,"
-                     "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,"
-                     "org.apache.hadoop:hadoop-aws:3.3.4",
-        )
-
-        bronze_iqms = SparkSubmitOperator(
-            task_id="bronze_iqms",
-            application="/opt/airflow/dags/spark_jobs/bronze_kafka_to_iceberg.py",
-            conf=SPARK_CONF,
-            application_args=["--topic", "iqms.quality_tests",
-                               "--table", "lakehouse.bronze.iqms_quality_tests",
-                               "--path", f"{BRONZE_PATH}/iqms/quality_tests"],
-            packages="org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.3,"
-                     "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,"
-                     "org.apache.hadoop:hadoop-aws:3.3.4",
-        )
-
-        bronze_historian = SparkSubmitOperator(
-            task_id="bronze_historian",
-            application="/opt/airflow/dags/spark_jobs/bronze_kafka_to_iceberg.py",
-            conf=SPARK_CONF,
-            application_args=["--topic", "historian.process_parameters",
-                               "--table", "lakehouse.bronze.historian_process_params",
-                               "--path", f"{BRONZE_PATH}/historian/process_params"],
-            packages="org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.3,"
-                     "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,"
-                     "org.apache.hadoop:hadoop-aws:3.3.4",
-        )
-
-        bronze_sap = SparkSubmitOperator(
-            task_id="bronze_sap",
-            application="/opt/airflow/dags/spark_jobs/bronze_kafka_to_iceberg.py",
-            conf=SPARK_CONF,
-            application_args=["--topic", "sap.inventory_movements",
-                               "--table", "lakehouse.bronze.sap_inventory_movements",
-                               "--path", f"{BRONZE_PATH}/sap/inventory_movements"],
-            packages="org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.3,"
-                     "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,"
-                     "org.apache.hadoop:hadoop-aws:3.3.4",
-        )
-
-        bronze_trackwise = SparkSubmitOperator(
-            task_id="bronze_trackwise",
-            application="/opt/airflow/dags/spark_jobs/bronze_kafka_to_iceberg.py",
-            conf=SPARK_CONF,
-            application_args=["--topic", "trackwise.capas",
-                               "--table", "lakehouse.bronze.trackwise_capas",
-                               "--path", f"{BRONZE_PATH}/trackwise/capas"],
-            packages="org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.3,"
-                     "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,"
-                     "org.apache.hadoop:hadoop-aws:3.3.4",
-        )
-
-        bronze_tms = SparkSubmitOperator(
-            task_id="bronze_tms",
-            application="/opt/airflow/dags/spark_jobs/bronze_kafka_to_iceberg.py",
-            conf=SPARK_CONF,
-            application_args=["--topic", "tms.training_completions",
-                               "--table", "lakehouse.bronze.tms_training_completions",
-                               "--path", f"{BRONZE_PATH}/tms/training_completions"],
-            packages="org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.4.3,"
-                     "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,"
-                     "org.apache.hadoop:hadoop-aws:3.3.4",
-        )
-
-    # ── Silver Layer: dbt Cleaning & Enrichment ───────────────────────────────
-    with TaskGroup("silver_transform", tooltip="Bronze → Silver via dbt") as silver_group:
-
-        dbt_silver = BashOperator(
-            task_id="dbt_run_silver",
-            bash_command="""
-                cd /usr/app/dbt && \
-                dbt run --select silver --profiles-dir /usr/app/dbt --project-dir /usr/app/dbt
-            """,
-            env={"DBT_PROFILES_DIR": "/usr/app/dbt"},
-        )
-
-        dbt_test_silver = BashOperator(
-            task_id="dbt_test_silver",
-            bash_command="""
-                cd /usr/app/dbt && \
-                dbt test --select silver --profiles-dir /usr/app/dbt --project-dir /usr/app/dbt
-            """,
-        )
-
-        dbt_silver >> dbt_test_silver
-
-    # ── Silver Layer: Great Expectations Quality Gates ────────────────────────
-    with TaskGroup("quality_gates", tooltip="Great Expectations DQ checks") as dq_group:
-
-        def run_ge_checkpoint(checkpoint_name: str, **kwargs):
-            """Run a Great Expectations checkpoint."""
-            import subprocess
-            result = subprocess.run(
-                ["python", "/opt/airflow/dags/ge_checkpoints/run_checkpoint.py",
-                 "--checkpoint", checkpoint_name],
-                capture_output=True, text=True
-            )
-            if result.returncode != 0:
-                raise ValueError(f"GE checkpoint {checkpoint_name} failed:\n{result.stderr}")
-            log.info(result.stdout)
-
-        ge_mes = PythonOperator(
-            task_id="ge_check_mes",
-            python_callable=run_ge_checkpoint,
-            op_kwargs={"checkpoint_name": "mes_silver_checkpoint"},
-        )
-        ge_iqms = PythonOperator(
-            task_id="ge_check_iqms",
-            python_callable=run_ge_checkpoint,
-            op_kwargs={"checkpoint_name": "iqms_silver_checkpoint"},
-        )
-        ge_sap = PythonOperator(
-            task_id="ge_check_sap",
-            python_callable=run_ge_checkpoint,
-            op_kwargs={"checkpoint_name": "sap_silver_checkpoint"},
-        )
-
-    # ── Gold Layer: dbt Domain Data Marts ─────────────────────────────────────
-    with TaskGroup("gold_marts", tooltip="Silver → Gold Domain Marts") as gold_group:
-
-        dbt_gold = BashOperator(
-            task_id="dbt_run_gold",
-            bash_command="""
-                cd /usr/app/dbt && \
-                dbt run --select gold --profiles-dir /usr/app/dbt --project-dir /usr/app/dbt
-            """,
-        )
-
-        dbt_test_gold = BashOperator(
-            task_id="dbt_test_gold",
-            bash_command="""
-                cd /usr/app/dbt && \
-                dbt test --select gold --profiles-dir /usr/app/dbt --project-dir /usr/app/dbt
-            """,
-        )
-
-        dbt_docs = BashOperator(
-            task_id="dbt_generate_docs",
-            bash_command="""
-                cd /usr/app/dbt && \
-                dbt docs generate --profiles-dir /usr/app/dbt --project-dir /usr/app/dbt
-            """,
-        )
-
-        dbt_gold >> dbt_test_gold >> dbt_docs
-
-    # ── DataHub Lineage Emission ───────────────────────────────────────────────
-    emit_lineage = BashOperator(
-        task_id="emit_datahub_lineage",
-        bash_command="""
-            python /opt/airflow/dags/datahub_lineage/emit_lineage.py \
-                --gms-url http://datahub-gms:8080 \
-                --run-id {{ run_id }}
-        """,
+    generate_source_data = PythonOperator(
+        task_id="generate_source_data",
+        python_callable=generate_source_data_task,
     )
 
-    # ── Pipeline Wiring ───────────────────────────────────────────────────────
+    publish_to_kafka = PythonOperator(
+        task_id="publish_to_kafka",
+        python_callable=publish_to_kafka_task,
+    )
+
+    check_kafka_topics = PythonOperator(
+        task_id="check_kafka_topics",
+        python_callable=check_kafka_topics_task,
+    )
+
+    spark_bronze_ingest = SparkSubmitOperator(
+        task_id="spark_bronze_ingest",
+        conn_id="spark_lakehouse",
+        application=str(SCRIPTS_DIR / "create_bronze_tables.py"),
+        conf=SPARK_CONF,
+        packages=SPARK_PACKAGES,
+        verbose=True,
+    )
+
+    verify_bronze_counts = TrinoOperator(
+        task_id="verify_bronze_counts",
+        trino_conn_id="trino_lakehouse",
+        sql=(SCRIPTS_DIR / "verify_bronze.sql").read_text(encoding="utf-8"),
+    )
+
+    dbt_run_silver = BashOperator(
+        task_id="dbt_run_silver",
+        bash_command=f"cd {DBT_DIR} && dbt run --select silver --profiles-dir {DBT_DIR} --project-dir {DBT_DIR}",
+    )
+
+    dbt_test_silver = BashOperator(
+        task_id="dbt_test_silver",
+        bash_command=f"cd {DBT_DIR} && dbt test --select silver --profiles-dir {DBT_DIR} --project-dir {DBT_DIR}",
+    )
+
+    run_gx_validation = PythonOperator(
+        task_id="run_gx_validation",
+        python_callable=run_gx_validation_task,
+    )
+
+    dbt_run_gold = BashOperator(
+        task_id="dbt_run_gold",
+        bash_command=f"cd {DBT_DIR} && dbt run --select gold --profiles-dir {DBT_DIR} --project-dir {DBT_DIR}",
+    )
+
+    dbt_test_gold = BashOperator(
+        task_id="dbt_test_gold",
+        bash_command=f"cd {DBT_DIR} && dbt test --select gold --profiles-dir {DBT_DIR} --project-dir {DBT_DIR}",
+    )
+
+    notify_pipeline_complete = PythonOperator(
+        task_id="notify_pipeline_complete",
+        python_callable=notify_pipeline_complete_task,
+    )
+
     (
-        start
-        >> bronze_group
-        >> silver_group
-        >> dq_group
-        >> gold_group
-        >> emit_lineage
-        >> end
+        generate_source_data
+        >> publish_to_kafka
+        >> check_kafka_topics
+        >> spark_bronze_ingest
+        >> verify_bronze_counts
+        >> dbt_run_silver
+        >> dbt_test_silver
+        >> run_gx_validation
+        >> dbt_run_gold
+        >> dbt_test_gold
+        >> notify_pipeline_complete
     )
