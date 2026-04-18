@@ -7,10 +7,10 @@
       "title": "Open CAPAs by Department",
       "type": "barchart",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "datasource": { "type": "postgres", "uid": "tpl-postgres" },
+      "datasource": { "type": "trino-datasource", "uid": "tpl-trino" },
       "targets": [{
         "rawSql": "SELECT department, SUM(open_capas) AS open_capas, SUM(overdue_capas) AS overdue_capas FROM iceberg.gold.gold_compliance_capa_mart WHERE report_month >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '3' MONTH) GROUP BY department ORDER BY open_capas DESC",
-        "format": "table"
+        "format": 1
       }]
     },
     {
@@ -18,7 +18,7 @@
       "title": "CAPA RAG Status Distribution",
       "type": "piechart",
       "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
-      "datasource": { "type": "postgres", "uid": "tpl-postgres" },
+      "datasource": { "type": "trino-datasource", "uid": "tpl-trino" },
       "fieldConfig": { "defaults": { "color": { "mode": "fixed" } }, "overrides": [
         { "matcher": { "id": "byName", "options": "GREEN" }, "properties": [{ "id": "color", "value": { "fixedColor": "green" } }] },
         { "matcher": { "id": "byName", "options": "AMBER" }, "properties": [{ "id": "color", "value": { "fixedColor": "orange" } }] },
@@ -26,7 +26,7 @@
       ]},
       "targets": [{
         "rawSql": "SELECT compliance_rag_status, COUNT(*) AS count FROM iceberg.gold.gold_compliance_capa_mart GROUP BY compliance_rag_status",
-        "format": "table"
+        "format": 1
       }]
     },
     {
@@ -34,11 +34,11 @@
       "title": "Quality Test Pass Rate Trend",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
-      "datasource": { "type": "postgres", "uid": "tpl-postgres" },
+      "datasource": { "type": "trino-datasource", "uid": "tpl-trino" },
       "fieldConfig": { "defaults": { "unit": "percent", "custom": { "lineWidth": 2, "fillOpacity": 10 } } },
       "targets": [{
         "rawSql": "SELECT production_date AS time, AVG(quality_pass_rate_pct) AS pass_rate FROM iceberg.gold.gold_manufacturing_oee_mart WHERE production_date >= CURRENT_DATE - INTERVAL '30' DAY GROUP BY production_date ORDER BY production_date",
-        "format": "time_series"
+        "format": 0
       }]
     },
     {
@@ -46,11 +46,11 @@
       "title": "Overdue Training Count",
       "type": "stat",
       "gridPos": { "h": 4, "w": 8, "x": 0, "y": 8 },
-      "datasource": { "type": "postgres", "uid": "tpl-postgres" },
+      "datasource": { "type": "trino-datasource", "uid": "tpl-trino" },
       "fieldConfig": { "defaults": { "thresholds": { "steps": [{ "value": null, "color": "green" }, { "value": 5, "color": "yellow" }, { "value": 15, "color": "red" }] } } },
       "targets": [{
         "rawSql": "SELECT SUM(overdue_trainings) AS overdue FROM iceberg.gold.gold_training_compliance_mart WHERE report_month = DATE_TRUNC('month', CURRENT_DATE)",
-        "format": "table"
+        "format": 1
       }]
     },
     {

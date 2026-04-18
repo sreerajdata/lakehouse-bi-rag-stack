@@ -1,4 +1,4 @@
-tpl_lakehouse:
+enterprise_lakehouse:
   target: dev
   outputs:
     dev:

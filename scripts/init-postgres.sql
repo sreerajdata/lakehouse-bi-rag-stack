@@ -1,6 +1,4 @@
--- ============================================================
--- TPL Data Lakehouse - PostgreSQL Database Initialization
--- ============================================================
+-- Enterprise Data Lakehouse - PostgreSQL Database Initialization
 
 -- Airflow
 CREATE DATABASE airflow;

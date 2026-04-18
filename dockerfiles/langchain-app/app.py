@@ -1,5 +1,5 @@
 """
-TPL Data Lakehouse - AI Chatbot (RAG + Llama 3 via Ollama)
+Enterprise Data Lakehouse - AI Chatbot (RAG + Llama 3 via Ollama)
 Streamlit UI | LangChain | Milvus vector store | Trino SQL
 """
 
@@ -16,7 +16,7 @@ from langchain_community.agent_toolkits import create_sql_agent
 from langchain.agents.agent_types import AgentType
 import pandas as pd
 
-# ── Config ────────────────────────────────────────────────────────────────────
+# Config
 OLLAMA_URL   = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 MILVUS_HOST  = os.getenv("MILVUS_HOST", "milvus")
 MILVUS_PORT  = int(os.getenv("MILVUS_PORT", 19530))
@@ -25,17 +25,17 @@ TRINO_PORT   = int(os.getenv("TRINO_PORT", 8080))
 
 TRINO_URI    = f"trino://admin@{TRINO_HOST}:{TRINO_PORT}/iceberg"
 
-# ── Streamlit Page Setup ──────────────────────────────────────────────────────
+# Streamlit Page Setup
 st.set_page_config(
-    page_title="TPL Lakehouse AI Assistant",
+    page_title="Enterprise Lakehouse AI Assistant",
     page_icon="🏭",
     layout="wide"
 )
 
-st.title("🏭 TPL Data Lakehouse AI Assistant")
+st.title("🏭 Enterprise Data Lakehouse AI Assistant")
 st.caption("Powered by Llama 3 (on-prem) | RAG | Milvus | Trino")
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+# Sidebar
 with st.sidebar:
     st.header("⚙️ Configuration")
     mode = st.radio(
@@ -53,7 +53,7 @@ with st.sidebar:
     st.warning("🟡 Gold: Domain marts")
 
 
-# ── LLM Initialization ────────────────────────────────────────────────────────
+# LLM Initialization
 @st.cache_resource
 def get_llm(model: str, temp: float):
     return Ollama(base_url=OLLAMA_URL, model=model, temperature=temp)
@@ -67,7 +67,7 @@ def get_vector_store():
     embeddings = get_embeddings()
     return Milvus(
         embedding_function=embeddings,
-        collection_name="tpl_documents",
+        collection_name="enterprise_documents",
         connection_args={"host": MILVUS_HOST, "port": MILVUS_PORT},
     )
 
@@ -87,10 +87,10 @@ def get_sql_agent(_llm):
     )
 
 
-# ── RAG Prompt Template ───────────────────────────────────────────────────────
+# RAG Prompt Template
 RAG_PROMPT = PromptTemplate(
     input_variables=["context", "question"],
-    template="""You are an expert data analyst for TPL (Torrent Pharmaceuticals Ltd).
+    template="""You are an expert data analyst for the manufacturing enterprise.
 You have access to documents, SOPs, batch records, and manufacturing data.
 Answer questions accurately based on the provided context.
 If you cannot find the answer in the context, say so clearly.
@@ -105,7 +105,7 @@ Answer:"""
 )
 
 
-# ── Chat Interface ─────────────────────────────────────────────────────────────
+# Chat Interface
 if "messages" not in st.session_state:
     st.session_state.messages = []
 if "memory" not in st.session_state:

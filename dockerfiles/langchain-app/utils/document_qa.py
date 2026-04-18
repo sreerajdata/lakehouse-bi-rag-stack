@@ -1,5 +1,5 @@
 """
-TPL Data Lakehouse — Document QA Chain
+Enterprise Data Lakehouse — Document QA Chain
 Standalone QA chain: question → Milvus retrieval → Llama 3 synthesis → answer with citations.
 
 Returns:
@@ -13,12 +13,12 @@ from typing import Dict, Any, Optional, List
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("document-qa")
 
-# ── Configuration ─────────────────────────────────────────────────────────────
+# Configuration
 OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 MILVUS_HOST = os.getenv("MILVUS_HOST", "milvus")
 MILVUS_PORT = int(os.getenv("MILVUS_PORT", "19530"))
 
-QA_PROMPT_TEMPLATE = """You are an expert pharmaceutical data analyst for TPL (Torrent Pharmaceuticals Ltd).
+QA_PROMPT_TEMPLATE = """You are an expert pharmaceutical data analyst for the manufacturing enterprise.
 Answer the question based ONLY on the provided context from internal documents.
 If you cannot find the answer in the context, clearly state that the information is not available.
 Always cite the source documents when possible.
@@ -39,7 +39,7 @@ def answer_question(
     question: str,
     source_filter: Optional[str] = None,
     top_k: int = 4,
-    collection: str = "tpl_documents",
+    collection: str = "enterprise_documents",
 ) -> Dict[str, Any]:
     """
     Answer a question using RAG (Retrieval Augmented Generation).
@@ -163,7 +163,7 @@ def answer_question(
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Document QA — ask questions about TPL documents")
+    parser = argparse.ArgumentParser(description="Document QA — ask questions about enterprise documents")
     parser.add_argument("question", help="Question to answer")
     parser.add_argument("--source", default=None, help="Filter by source document filename")
     parser.add_argument("--top-k", type=int, default=4, help="Number of chunks to retrieve")

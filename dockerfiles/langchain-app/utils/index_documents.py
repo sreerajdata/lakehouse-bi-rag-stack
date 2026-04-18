@@ -1,9 +1,9 @@
 """
-TPL Data Lakehouse — Document Indexer
+Enterprise Data Lakehouse — Document Indexer
 Reads documents from SeaweedFS, extracts text, chunks, embeds, and upserts to Milvus.
 
 Usage:
-    python index_documents.py --bucket lakehouse-docs --collection tpl_documents
+    python index_documents.py --bucket lakehouse-docs --collection enterprise_documents
     python index_documents.py --bucket lakehouse-docs --tika-url http://tika:9998
 """
 
@@ -20,7 +20,7 @@ from botocore.config import Config as BotoConfig
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger("document-indexer")
 
-# ── Configuration ─────────────────────────────────────────────────────────────
+# Configuration
 S3_ENDPOINT = os.getenv("SEAWEEDFS_ENDPOINT", "http://seaweedfs-s3:8333")
 S3_ACCESS_KEY = os.getenv("SEAWEEDFS_ACCESS_KEY", "admin")
 S3_SECRET_KEY = os.getenv("SEAWEEDFS_SECRET_KEY", "admin123")
@@ -115,7 +115,7 @@ def chunk_text(text: str, chunk_size: int = 512, overlap: int = 50) -> List[str]
 
 def index_documents(
     bucket: str,
-    collection: str = "tpl_documents",
+    collection: str = "enterprise_documents",
     tika_url: str = DEFAULT_TIKA_URL,
     prefix: str = "",
 ):
@@ -215,7 +215,7 @@ def index_documents(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Index documents from SeaweedFS to Milvus")
     parser.add_argument("--bucket", default="lakehouse-docs", help="SeaweedFS bucket name")
-    parser.add_argument("--collection", default="tpl_documents", help="Milvus collection name")
+    parser.add_argument("--collection", default="enterprise_documents", help="Milvus collection name")
     parser.add_argument("--tika-url", default=DEFAULT_TIKA_URL, help="Tika REST API URL")
     parser.add_argument("--prefix", default="", help="S3 key prefix filter")
     args = parser.parse_args()

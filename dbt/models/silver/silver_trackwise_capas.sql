@@ -68,7 +68,7 @@ cleaned as (
         _ingest_month,
         _ingest_day,
         current_timestamp as _silver_loaded_at,
-        'TPL-Data-Engineering' as _data_owner
+        'Enterprise-Data-Engineering' as _data_owner
     from bronze_source
     where capa_id is not null
 )

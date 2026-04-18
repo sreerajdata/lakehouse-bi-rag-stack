@@ -1,5 +1,5 @@
 """
-TPL Data Lakehouse - Synthetic Data Generator
+Enterprise Data Lakehouse - Synthetic Data Generator
 Simulates: MES, IQMS, Historian/L2, Trackwise, SAP ECC, TMS
 Outputs to: Kafka topics (streaming) + PostgreSQL (batch)
 """
@@ -23,7 +23,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelna
 logger = logging.getLogger("synthetic-datagen")
 fake = Faker()
 
-# ── Configuration ─────────────────────────────────────────────────────────────
+# Configuration
 KAFKA_SERVERS = "kafka:9092"
 PG_CONFIG = {
     "host": "postgres",
@@ -36,7 +36,7 @@ PG_CONFIG = {
 BATCH_SIZE = int(os.getenv("SYNTHETIC_BATCH_SIZE", 100))
 STREAM_INTERVAL_MS = int(os.getenv("SYNTHETIC_STREAM_INTERVAL_MS", 500))
 
-# ── Reference Data ────────────────────────────────────────────────────────────
+# Reference Data
 PRODUCTS = ["PROD-API-001", "PROD-TAB-002", "PROD-CAP-003", "PROD-INJ-004", "PROD-SYR-005"]
 MACHINES = [f"MCH-{i:03d}" for i in range(1, 21)]
 OPERATORS = [f"OPR-{i:03d}" for i in range(1, 51)]
@@ -50,7 +50,7 @@ MATERIALS = [f"MAT-{i:05d}" for i in range(1000, 1200)]
 CAPA_CODES = ["CAPA-HUM", "CAPA-MAC", "CAPA-MTH", "CAPA-ENV", "CAPA-MAT"]
 
 
-# ── Kafka Producer ─────────────────────────────────────────────────────────────
+# Kafka Producer
 def get_kafka_producer():
     retries = 0
     while retries < 10:
@@ -71,7 +71,7 @@ def get_kafka_producer():
     raise RuntimeError("Could not connect to Kafka after 10 retries")
 
 
-# ── MES - Manufacturing Execution System ──────────────────────────────────────
+# MES - Manufacturing Execution System
 class MESGenerator:
     TOPIC = "mes.production_orders"
     MACHINE_STATUS_TOPIC = "mes.machine_status"
@@ -134,7 +134,7 @@ class MESGenerator:
         }
 
 
-# ── IQMS - Quality Management System ──────────────────────────────────────────
+# IQMS - Quality Management System
 class IQMSGenerator:
     TOPIC = "iqms.quality_tests"
     DEVIATION_TOPIC = "iqms.deviations"
@@ -180,7 +180,7 @@ class IQMSGenerator:
         }
 
 
-# ── Historian / L2 - Time-Series Operational Data ─────────────────────────────
+# Historian / L2 - Time-Series Operational Data
 class HistorianGenerator:
     TOPIC = "historian.process_parameters"
 
@@ -211,7 +211,7 @@ class HistorianGenerator:
         }
 
 
-# ── Trackwise - CAPA / QMS ────────────────────────────────────────────────────
+# Trackwise - CAPA / QMS
 class TrackwiseGenerator:
     TOPIC = "trackwise.capas"
     COMPLAINT_TOPIC = "trackwise.complaints"
@@ -252,7 +252,7 @@ class TrackwiseGenerator:
         }
 
 
-# ── SAP ECC ───────────────────────────────────────────────────────────────────
+# SAP ECC
 class SAPGenerator:
     TOPIC = "sap.inventory_movements"
     PO_TOPIC = "sap.purchase_orders"
@@ -305,7 +305,7 @@ class SAPGenerator:
         }
 
 
-# ── TMS - Training Management System ──────────────────────────────────────────
+# TMS - Training Management System
 class TMSGenerator:
     TOPIC = "tms.training_completions"
 
@@ -337,7 +337,7 @@ class TMSGenerator:
         }
 
 
-# ── Main Streaming Loop ────────────────────────────────────────────────────────
+# Main Streaming Loop
 def stream_to_kafka(producer: KafkaProducer):
     """Continuously generate and publish events to Kafka topics."""
     generators = {
@@ -397,7 +397,7 @@ def stream_to_kafka(producer: KafkaProducer):
             time.sleep(2)
 
 
-# ── Batch Seeder (PostgreSQL) ──────────────────────────────────────────────────
+# Batch Seeder (PostgreSQL)
 def seed_postgres():
     """Seed PostgreSQL with initial batch data for all source systems."""
     conn = psycopg2.connect(**PG_CONFIG)
@@ -470,10 +470,10 @@ def seed_postgres():
     conn.close()
 
 
-# ── Entry Point ────────────────────────────────────────────────────────────────
+# Entry Point
 if __name__ == "__main__":
 
-    logger.info("Starting TPL Synthetic Data Generator...")
+    logger.info("Starting Enterprise Synthetic Data Generator...")
 
     # Seed batch data
     try:

@@ -1,9 +1,7 @@
 
-# ============================================================
-# TPL Data Lakehouse - Full Stack Docker Compose
+# Enterprise Data Lakehouse - Full Stack Docker Compose
 # Airgapped / On-Prem Build
 # Storage Backend: SeaweedFS (S3-Compatible)
-# ============================================================
 
 x-airflow-common: &airflow-common
   build:
@@ -818,6 +816,7 @@ services:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASS:-admin123}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: "trino-datasource"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./configs/grafana/provisioning:/etc/grafana/provisioning

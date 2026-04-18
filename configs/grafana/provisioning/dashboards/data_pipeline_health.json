@@ -45,9 +45,9 @@
       "title": "Bronze / Silver / Gold Row Counts",
       "type": "stat",
       "gridPos": { "h": 4, "w": 6, "x": 18, "y": 4 },
-      "datasource": { "type": "postgres", "uid": "tpl-postgres" },
+      "datasource": { "type": "trino-datasource", "uid": "tpl-trino" },
       "targets": [
-        { "rawSql": "SELECT 'Bronze' AS layer, COUNT(*) AS rows FROM iceberg.bronze.mes_production_orders UNION ALL SELECT 'Silver', COUNT(*) FROM iceberg.silver.silver_mes_production_orders UNION ALL SELECT 'Gold', COUNT(*) FROM iceberg.gold.gold_manufacturing_oee_mart", "format": "table" }
+        { "rawSql": "SELECT 'Bronze' AS layer, COUNT(*) AS rows FROM iceberg.bronze.mes_production_orders UNION ALL SELECT 'Silver', COUNT(*) FROM iceberg.silver.silver_mes_production_orders UNION ALL SELECT 'Gold', COUNT(*) FROM iceberg.gold.gold_manufacturing_oee_mart", "format": 1 }
       ]
     },
     {
@@ -55,7 +55,7 @@
       "title": "Failed Airflow Tasks (Last 24h)",
       "type": "table",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
-      "datasource": { "type": "postgres", "uid": "tpl-postgres" },
+      "datasource": { "type": "postgres", "uid": "tpl-postgres-airflow" },
       "targets": [{
         "rawSql": "SELECT dag_id, task_id, execution_date, state, duration FROM airflow.task_instance WHERE state = 'failed' AND execution_date >= NOW() - INTERVAL '24 hours' ORDER BY execution_date DESC LIMIT 50",
         "format": "table"

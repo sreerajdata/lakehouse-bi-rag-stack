@@ -1,11 +1,9 @@
-# ============================================================
-# DataHub Business Glossary — TPL Pharma Domain Terms
+# DataHub Business Glossary — Enterprise Pharma Domain Terms
 # 21 CFR Part 11 / ALCOA+ / GxP Standard Terminology
-# ============================================================
 
 glossary:
-  - name: "TPL Manufacturing & Quality"
-    description: "Standard pharmaceutical manufacturing and quality terminology for Torrent Pharmaceuticals"
+  - name: "Enterprise Manufacturing & Quality"
+    description: "Standard pharmaceutical manufacturing and quality terminology for the enterprise"
     terms:
       - name: "OEE (Overall Equipment Effectiveness)"
         description: "A measure of manufacturing productivity. OEE = Availability × Performance × Quality Rate. World-class OEE is ≥85%."
@@ -59,7 +57,7 @@ glossary:
 
       - name: "Vendor Score"
         description: "Composite performance metric (0-100) evaluating vendor quality, delivery reliability, and compliance with CAPAs."
-        termSource: "TPL Supply Chain"
+        termSource: "Enterprise Supply Chain"
 
       - name: "Risk Score"
         description: "Composite quality risk metric (0-100) evaluating batch quality based on test pass rate, deviations, and yield."
