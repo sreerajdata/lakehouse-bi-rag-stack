@@ -1,5 +1,5 @@
 """
-TPL Data Lakehouse — Trino SQL Tool for LangChain
+Trino SQL Tool for LangChain
 Custom LangChain tool that converts natural language questions to SQL,
 executes against the gold layer via Trino, and returns formatted results.
 
@@ -16,7 +16,7 @@ from langchain_community.llms import Ollama
 
 logger = logging.getLogger("trino-tool")
 
-# ── Configuration ─────────────────────────────────────────────────────────────
+# Configuration
 TRINO_HOST = os.getenv("TRINO_HOST", "trino")
 TRINO_PORT = int(os.getenv("TRINO_PORT", "8080"))
 OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
@@ -55,7 +55,7 @@ class TrinoQueryTool(BaseTool):
 
     name: str = "trino_query"
     description: str = (
-        "Query the TPL Data Lakehouse gold layer tables using natural language. "
+        "Query the Data Lakehouse gold layer tables using natural language. "
         "Useful for questions about OEE, inventory, quality, CAPAs, training, "
         "and vendor performance. Returns formatted query results."
     )

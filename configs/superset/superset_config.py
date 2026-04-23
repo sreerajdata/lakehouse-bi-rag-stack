@@ -11,7 +11,7 @@ SQLALCHEMY_DATABASE_URI = os.getenv(
 ADDITIONAL_DATABASES = {
     "trino_iceberg": {
         "sqlalchemy_uri": "trino://admin@trino:8080/iceberg",
-        "name": "TPL Lakehouse (Trino/Iceberg)",
+        "name": "Enterprise Lakehouse (Trino/Iceberg)",
     }
 }
 

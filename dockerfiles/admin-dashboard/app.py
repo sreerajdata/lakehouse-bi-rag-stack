@@ -1,5 +1,5 @@
 """
-TPL Data Lakehouse — Admin Ops Dashboard (Streamlit)
+Admin Ops Dashboard (Streamlit)
 Provides real-time operational visibility into the data lakehouse stack.
 """
 
@@ -10,7 +10,7 @@ from datetime import datetime
 import streamlit as st
 import requests
 
-# ── Configuration ─────────────────────────────────────────────────────────────
+# Configuration
 AIRFLOW_URL = os.getenv("AIRFLOW_BASE_URL", "http://airflow-webserver:8080")
 SEAWEEDFS_URL = os.getenv("SEAWEEDFS_ENDPOINT", "http://seaweedfs-s3:8333")
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
@@ -87,18 +87,18 @@ def trigger_dag(dag_id: str):
         return False
 
 
-# ── Streamlit UI ──────────────────────────────────────────────────────────────
+# Streamlit UI
 st.set_page_config(
-    page_title="TPL Lakehouse Admin",
+    page_title="Lakehouse Admin",
     page_icon="🏭",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-st.title("🏭 TPL Data Lakehouse — Admin Console")
+st.title("🏭 Data Lakehouse — Admin Console")
 st.caption(f"Last refreshed: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
-# ── Sidebar ──────────────────────────────────────────────────────────────────
+# Sidebar
 with st.sidebar:
     st.header("🔧 Quick Actions")
 
@@ -128,7 +128,7 @@ with st.sidebar:
     st.markdown(f"- [Trino UI](http://localhost:8180)")
     st.markdown(f"- [Spark UI](http://localhost:8181)")
 
-# ── Main Dashboard ────────────────────────────────────────────────────────────
+# Main Dashboard
 col1, col2, col3, col4 = st.columns(4)
 
 # Trino status
@@ -167,7 +167,7 @@ with col4:
     except Exception:
         st.metric("Kafka", "🔴 Down", None)
 
-# ── Pipeline Status ──────────────────────────────────────────────────────────
+# Pipeline Status
 st.divider()
 st.header("📊 Pipeline Status")
 
@@ -195,15 +195,15 @@ if dags:
 else:
     st.info("Could not connect to Airflow")
 
-# ── Data Freshness ────────────────────────────────────────────────────────────
+# Data Freshness
 st.divider()
 st.header("🕐 Data Freshness")
 st.info("Data freshness metrics require active Trino connection with populated tables.")
 
-# ── Footer ────────────────────────────────────────────────────────────────────
+# Footer
 st.divider()
 st.caption(
-    "TPL Data Lakehouse Admin Dashboard v1.0 | "
+    "Data Lakehouse Admin Dashboard v1.0 | "
     "Built with Streamlit | "
-    "21 CFR Part 11 Compliant Infrastructure"
+    "Compliance-Ready Infrastructure"
 )

@@ -1,5 +1,5 @@
 """
-TPL Data Lakehouse — DataHub Lineage Builder
+DataHub Lineage Builder
 Reads dbt manifest.json, extracts model dependencies, and emits
 DatasetLineageClass events to DataHub REST API.
 
@@ -21,7 +21,7 @@ logger = logging.getLogger("lineage-builder")
 
 DATAHUB_GMS_URL = os.getenv("DATAHUB_GMS_URL", "http://datahub-gms:8080")
 PLATFORM = "trino"
-PLATFORM_INSTANCE = "tpl-lakehouse"
+PLATFORM_INSTANCE = "enterprise-lakehouse"
 ENV = "PROD"
 
 

@@ -6,4 +6,4 @@ SELECT 'trackwise_deviations', COUNT(*) FROM iceberg.bronze.trackwise_deviations
 UNION ALL
 SELECT 'sap_ecc_orders', COUNT(*) FROM iceberg.bronze.sap_ecc_orders
 UNION ALL
-SELECT 'sop_documents', COUNT(*) FROM iceberg.bronze.sop_documents;
+SELECT 'sop_documents', COUNT(*) FROM iceberg.bronze.sop_documents

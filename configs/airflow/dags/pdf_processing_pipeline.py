@@ -1,9 +1,6 @@
 """
-TPL Data Lakehouse — PDF Processing Pipeline DAG
 Downloads PDFs from SeaweedFS, extracts text via Tika/OCR, stores in bronze,
 and triggers Milvus indexing for RAG search.
-
-Schedule: Hourly
 """
 
 from datetime import datetime, timedelta
@@ -15,7 +12,7 @@ from airflow.operators.python import PythonOperator
 from airflow.operators.bash import BashOperator
 from airflow.models import Variable
 
-# ── Configuration ─────────────────────────────────────────────────────────────
+# Configuration
 S3_ENDPOINT = os.getenv("SEAWEEDFS_ENDPOINT", "http://seaweedfs-s3:8333")
 S3_ACCESS_KEY = os.getenv("SEAWEEDFS_ACCESS_KEY", "admin")
 S3_SECRET_KEY = os.getenv("SEAWEEDFS_SECRET_KEY", "admin123")
@@ -29,7 +26,7 @@ BRONZE_PREFIX = "pdf_extractions/"
 DLQ_PREFIX = "dlq/pdf/"
 
 default_args = {
-    "owner": "tpl-data-engineering",
+    "owner": "data-engineering",
     "depends_on_past": False,
     "email_on_failure": False,
     "email_on_retry": False,
@@ -208,7 +205,7 @@ def trigger_milvus_indexer(**context):
 
         index_documents(
             bucket=BRONZE_BUCKET,
-            collection="tpl_documents",
+            collection="enterprise_documents",
             prefix=BRONZE_PREFIX,
         )
         print(f"✅ Successfully indexed {processed_count} documents into Milvus")
@@ -226,7 +223,7 @@ def trigger_milvus_indexer(**context):
             print(f"⚠️ Could not trigger indexer: {e}")
 
 
-# ── Task Definitions ──────────────────────────────────────────────────────────
+# Task Definitions
 t_list_pdfs = PythonOperator(
     task_id="list_new_pdfs",
     python_callable=list_new_pdfs,
@@ -255,5 +252,5 @@ t_notify = BashOperator(
     dag=dag,
 )
 
-# ── DAG Dependencies ─────────────────────────────────────────────────────────
+# DAG Dependencies
 t_list_pdfs >> t_process >> t_index >> t_notify

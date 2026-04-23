@@ -77,11 +77,12 @@ def run_python_script(script_name: str, extra_env: Optional[dict] = None) -> str
 
 
 def generate_source_data_task():
-    return run_python_script("generate_source_data.py")
-
+    print("Skipping generation (handled by external synthetic_datagen container)")
+    return "Skipped"
 
 def publish_to_kafka_task():
-    return run_python_script("kafka_producer.py", {"KAFKA_BOOTSTRAP_SERVERS": KAFKA_BOOTSTRAP})
+    print("Skipping publish (handled by external synthetic_datagen container)")
+    return "Skipped"
 
 
 def check_kafka_topics_task():

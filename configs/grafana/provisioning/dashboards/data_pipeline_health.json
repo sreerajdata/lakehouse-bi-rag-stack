@@ -4,41 +4,51 @@
   "panels": [
     {
       "id": 1,
-      "title": "Kafka Consumer Lag by Topic",
+      "title": "Kafka Pipeline Events by Source",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "tpl-prometheus" },
+      "datasource": { "type": "trino-datasource", "uid": "tpl-trino" },
       "fieldConfig": { "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 15 } } },
       "targets": [{
-        "expr": "kafka_consumergroup_lag{topic=~\".*\"}",
-        "legendFormat": "{{topic}} / {{consumergroup}}"
+        "rawSql": "SELECT time, metric, value FROM (\n  SELECT DATE_TRUNC('minute', _ingested_at) AS time, 'MES' AS metric, COUNT(*) AS value\n  FROM iceberg.bronze.mes_production_orders\n  WHERE _ingested_at >= CURRENT_TIMESTAMP - INTERVAL '24' HOUR\n  GROUP BY 1, 2\n  UNION ALL\n  SELECT DATE_TRUNC('minute', _ingested_at) AS time, 'IQMS' AS metric, COUNT(*) AS value\n  FROM iceberg.bronze.iqms_quality_tests\n  WHERE _ingested_at >= CURRENT_TIMESTAMP - INTERVAL '24' HOUR\n  GROUP BY 1, 2\n  UNION ALL\n  SELECT DATE_TRUNC('minute', _ingested_at) AS time, 'TMS' AS metric, COUNT(*) AS value\n  FROM iceberg.bronze.tms_training_completions\n  WHERE _ingested_at >= CURRENT_TIMESTAMP - INTERVAL '24' HOUR\n  GROUP BY 1, 2\n  UNION ALL\n  SELECT DATE_TRUNC('minute', _ingested_at) AS time, 'Trackwise' AS metric, COUNT(*) AS value\n  FROM iceberg.bronze.trackwise_capas\n  WHERE _ingested_at >= CURRENT_TIMESTAMP - INTERVAL '24' HOUR\n  GROUP BY 1, 2\n) q ORDER BY time",
+        "format": 0
       }]
     },
     {
       "id": 2,
-      "title": "Airflow DAG Success Rate",
+      "title": "Airflow DAG Success Rate (24h)",
       "type": "stat",
       "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "tpl-prometheus" },
+      "datasource": { "type": "postgres", "uid": "tpl-postgres-airflow" },
       "fieldConfig": { "defaults": { "unit": "percentunit", "thresholds": { "steps": [{ "value": null, "color": "red" }, { "value": 0.8, "color": "yellow" }, { "value": 0.95, "color": "green" }] } } },
-      "targets": [{ "expr": "airflow_dag_run_success_total / (airflow_dag_run_success_total + airflow_dag_run_failed_total)", "legendFormat": "Success Rate" }]
+      "targets": [{
+        "rawSql": "SELECT EXTRACT(EPOCH FROM NOW()) * 1000 AS time, COALESCE(SUM(CASE WHEN state = 'success' THEN 1 ELSE 0 END)::float / NULLIF(COUNT(*), 0), 0) AS value FROM public.dag_run WHERE dag_id = 'medallion_full_pipeline' AND execution_date >= NOW() - INTERVAL '24 hours'",
+        "format": "time_series"
+      }]
     },
     {
       "id": 3,
-      "title": "Spark Job Duration",
-      "type": "histogram",
+      "title": "Pipeline Task Duration (Avg 24h)",
+      "type": "stat",
       "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "tpl-prometheus" },
-      "targets": [{ "expr": "spark_app_duration_seconds", "legendFormat": "{{app_name}}" }]
+      "datasource": { "type": "postgres", "uid": "tpl-postgres-airflow" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [{
+        "rawSql": "SELECT EXTRACT(EPOCH FROM NOW()) * 1000 AS time, COALESCE(AVG(duration), 0) AS value FROM public.task_instance WHERE dag_id = 'medallion_full_pipeline' AND state = 'success' AND duration IS NOT NULL AND end_date >= NOW() - INTERVAL '24 hours'",
+        "format": "time_series"
+      }]
     },
     {
       "id": 4,
-      "title": "SeaweedFS Storage Utilization",
+      "title": "SeaweedFS Lakehouse Storage",
       "type": "gauge",
       "gridPos": { "h": 4, "w": 6, "x": 12, "y": 4 },
-      "datasource": { "type": "prometheus", "uid": "tpl-prometheus" },
+      "datasource": { "type": "trino-datasource", "uid": "tpl-trino" },
       "fieldConfig": { "defaults": { "unit": "bytes", "thresholds": { "steps": [{ "value": null, "color": "green" }, { "value": 80, "color": "yellow" }, { "value": 95, "color": "red" }] } } },
-      "targets": [{ "expr": "seaweedfs_volume_total_disk_size", "legendFormat": "Total Disk" }]
+      "targets": [{
+        "rawSql": "SELECT SUM(file_size_in_bytes) AS storage_bytes FROM (\n  SELECT file_size_in_bytes FROM iceberg.bronze.\"mes_production_orders$files\"\n  UNION ALL SELECT file_size_in_bytes FROM iceberg.bronze.\"iqms_quality_tests$files\"\n  UNION ALL SELECT file_size_in_bytes FROM iceberg.bronze.\"tms_training_completions$files\"\n  UNION ALL SELECT file_size_in_bytes FROM iceberg.silver.\"silver_mes_production_orders$files\"\n  UNION ALL SELECT file_size_in_bytes FROM iceberg.silver.\"silver_iqms_quality_tests$files\"\n  UNION ALL SELECT file_size_in_bytes FROM iceberg.gold.\"gold_manufacturing_oee_mart$files\"\n  UNION ALL SELECT file_size_in_bytes FROM iceberg.gold.\"gold_compliance_capa_mart$files\"\n  UNION ALL SELECT file_size_in_bytes FROM iceberg.gold.\"gold_training_compliance_mart$files\"\n) lakehouse_files",
+        "format": 1
+      }]
     },
     {
       "id": 5,
@@ -57,7 +67,7 @@
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
       "datasource": { "type": "postgres", "uid": "tpl-postgres-airflow" },
       "targets": [{
-        "rawSql": "SELECT dag_id, task_id, execution_date, state, duration FROM airflow.task_instance WHERE state = 'failed' AND execution_date >= NOW() - INTERVAL '24 hours' ORDER BY execution_date DESC LIMIT 50",
+        "rawSql": "SELECT ti.dag_id, ti.task_id, dr.execution_date, ti.state, ti.duration FROM public.task_instance ti JOIN public.dag_run dr ON ti.dag_id = dr.dag_id AND ti.run_id = dr.run_id WHERE ti.state = 'failed' AND dr.execution_date >= NOW() - INTERVAL '24 hours' ORDER BY dr.execution_date DESC LIMIT 50",
         "format": "table"
       }]
     }

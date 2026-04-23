@@ -1,1 +1,1 @@
-# TPL Data Lakehouse — LangChain Utility Modules
+# LangChain Utility Modules

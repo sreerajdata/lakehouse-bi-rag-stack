@@ -20,6 +20,7 @@ with production as (
         count_if(status = 'ON_HOLD') as on_hold_orders
     from {{ ref('silver_mes_production_orders') }}
     where status in ('COMPLETED', 'IN_PROGRESS', 'ON_HOLD')
+      and start_time is not null
     group by 1, 2, 3, 4, 5, 6, 7
 ),
 quality as (

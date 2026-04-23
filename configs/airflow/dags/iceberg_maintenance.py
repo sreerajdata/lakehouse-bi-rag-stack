@@ -1,9 +1,6 @@
 """
-TPL Data Lakehouse — Iceberg Table Maintenance DAG
 Daily maintenance: expire snapshots, rewrite data/manifest files,
 analyze tables, push metrics to Prometheus.
-
-Schedule: Daily at 2:00 AM UTC
 """
 
 from datetime import datetime, timedelta
@@ -12,7 +9,7 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 
-# ── Configuration ─────────────────────────────────────────────────────────────
+# Configuration
 SPARK_CONN_ID = "spark_default"
 
 # Tables to maintain (catalog.schema.table)
@@ -59,7 +56,7 @@ SPARK_CONF = {
 }
 
 default_args = {
-    "owner": "tpl-data-engineering",
+    "owner": "data-engineering",
     "depends_on_past": False,
     "email_on_failure": False,
     "retries": 2,
@@ -208,7 +205,7 @@ def push_maintenance_metrics(**context):
         print(f"Could not push metrics (Pushgateway may not be available): {e}")
 
 
-# ── Task Definitions ──────────────────────────────────────────────────────────
+# Task Definitions
 t_maintenance = PythonOperator(
     task_id="run_maintenance",
     python_callable=run_iceberg_maintenance,

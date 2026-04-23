@@ -5,7 +5,8 @@
 # Usage: ./scripts/register_connectors.sh
 #        or: make register-connectors
 # ============================================================
-set -euo pipefail
+set -e
+set -u
 
 CONNECT_URL="${KAFKA_CONNECT_URL:-http://kafka-connect:8083}"
 CONNECTOR_DIR="${CONNECTOR_DIR:-./configs/kafka-connect/connectors}"

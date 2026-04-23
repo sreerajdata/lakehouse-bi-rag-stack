@@ -1,0 +1,17 @@
+# ============================================================
+# DataHub Metadata Ingestion — dbt Source
+# Scans dbt manifest and catalog for lineage and docs
+# ============================================================
+
+source:
+  type: dbt
+  config:
+    manifest_path: "/usr/app/dbt/target/manifest.json"
+    catalog_path: "/usr/app/dbt/target/catalog.json"
+    target_platform: "trino"
+    env: "PROD"
+
+sink:
+  type: datahub-rest
+  config:
+    server: "http://datahub-gms:8080"

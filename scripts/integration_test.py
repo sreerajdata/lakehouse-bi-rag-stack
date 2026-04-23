@@ -1,5 +1,5 @@
 """
-TPL Data Lakehouse — End-to-End Integration Test Suite
+End-to-End Integration Test Suite
 Tests all platform components: SeaweedFS, Kafka, Trino, Airflow, Spark, Ollama, Milvus, Grafana.
 
 Usage:
@@ -15,7 +15,7 @@ import traceback
 from datetime import datetime
 from typing import Tuple
 
-# ── Configuration ─────────────────────────────────────────────────────────────
+# Configuration
 SEAWEEDFS_S3_URL = os.getenv("SEAWEEDFS_ENDPOINT", "http://localhost:8333")
 SEAWEEDFS_KEY    = os.getenv("SEAWEEDFS_ACCESS_KEY", "admin")
 SEAWEEDFS_SECRET = os.getenv("SEAWEEDFS_SECRET_KEY", "admin123")
@@ -59,7 +59,7 @@ def run_test(name: str, fn) -> TestResult:
         return TestResult(name, "FAIL", f"Exception: {str(e)}", duration)
 
 
-# ── Test Functions ────────────────────────────────────────────────────────────
+# Test Functions
 
 def test_seaweedfs() -> Tuple[bool, str]:
     """Test SeaweedFS S3 connectivity and bucket operations."""
@@ -215,11 +215,11 @@ def test_prometheus() -> Tuple[bool, str]:
     return True, f"{len(up_targets)}/{len(targets)} targets UP"
 
 
-# ── Main Test Runner ──────────────────────────────────────────────────────────
+# Main Test Runner
 
 def main():
     print("╔══════════════════════════════════════════════════════════╗")
-    print("║  TPL Data Lakehouse — Integration Test Suite            ║")
+    print("║  End-to-End Integration Test Suite                      ║")
     print("║  Testing all platform components...                     ║")
     print("╚══════════════════════════════════════════════════════════╝")
     print(f"  Timestamp: {datetime.utcnow().isoformat()}")
@@ -260,7 +260,7 @@ def main():
     junit_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_results.xml")
     with open(junit_path, "w") as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
-        f.write(f'<testsuite name="TPL-Lakehouse-Integration" tests="{total}" '
+        f.write(f'<testsuite name="Lakehouse-Integration" tests="{total}" '
                 f'failures="{failed}" timestamp="{datetime.utcnow().isoformat()}">\n')
         for r in results:
             f.write(f'  <testcase name="{r.name}" time="{r.duration:.3f}">\n')
@@ -274,7 +274,7 @@ def main():
     json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_results.json")
     with open(json_path, "w") as f:
         json.dump({
-            "suite": "TPL-Lakehouse-Integration",
+            "suite": "Lakehouse-Integration",
             "timestamp": datetime.utcnow().isoformat(),
             "total": total,
             "passed": passed,

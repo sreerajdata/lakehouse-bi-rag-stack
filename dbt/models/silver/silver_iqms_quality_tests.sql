@@ -14,7 +14,7 @@ with bronze_source as (
         try(json_extract_scalar(_raw_payload, '$.result')) as result,
         try(json_extract_scalar(_raw_payload, '$.analyst_id')) as analyst_id,
         try(json_extract_scalar(_raw_payload, '$.equipment_id')) as equipment_id,
-        try(cast(json_extract_scalar(_raw_payload, '$.tested_at') as timestamp)) as tested_at,
+        try(cast(from_iso8601_timestamp(json_extract_scalar(_raw_payload, '$.tested_at')) as timestamp)) as tested_at,
         try(json_extract_scalar(_raw_payload, '$.approved_by')) as approved_by,
         _ingested_at,
         _row_hash,
@@ -59,5 +59,10 @@ cleaned as (
     from bronze_source
     where test_id is not null
       and result_value is not null
+),
+deduplicated as (
+    select *,
+        row_number() over (partition by test_id order by _ingested_at desc) as rn
+    from cleaned
 )
-select * from cleaned
+select * from deduplicated where rn = 1

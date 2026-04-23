@@ -1,6 +1,6 @@
 """
 Great Expectations Checkpoint Runner
-TPL Data Lakehouse — Silver Layer DQ Validation
+Silver Layer DQ Validation
 
 Usage:
     python run_checkpoint.py --checkpoint mes_silver_checkpoint

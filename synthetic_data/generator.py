@@ -1,5 +1,5 @@
 """
-Enterprise Data Lakehouse - Synthetic Data Generator
+Synthetic Data Generator
 Simulates: MES, IQMS, Historian/L2, Trackwise, SAP ECC, TMS
 Outputs to: Kafka topics (streaming) + PostgreSQL (batch)
 """

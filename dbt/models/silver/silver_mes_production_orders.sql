@@ -15,8 +15,8 @@ with bronze_source as (
         try(cast(json_extract_scalar(_raw_payload, '$.rejected_qty') as integer)) as rejected_qty,
         try(cast(json_extract_scalar(_raw_payload, '$.scrap_percentage') as double)) as scrap_pct,
         try(json_extract_scalar(_raw_payload, '$.status')) as status,
-        try(cast(json_extract_scalar(_raw_payload, '$.start_time') as timestamp)) as start_time,
-        try(cast(json_extract_scalar(_raw_payload, '$.end_time') as timestamp)) as end_time,
+        try(cast(from_iso8601_timestamp(json_extract_scalar(_raw_payload, '$.start_time')) as timestamp)) as start_time,
+        try(cast(from_iso8601_timestamp(json_extract_scalar(_raw_payload, '$.end_time')) as timestamp)) as end_time,
         _ingested_at,
         _row_hash,
         _ingest_year,
@@ -60,5 +60,10 @@ cleaned as (
       and product_code is not null
       and actual_qty >= 0
       and planned_qty > 0
+),
+deduplicated as (
+    select *,
+        row_number() over (partition by order_id order by _ingested_at desc) as rn
+    from cleaned
 )
-select * from cleaned
+select * from deduplicated where rn = 1

@@ -1,5 +1,5 @@
 """
-TPL Data Lakehouse — DataHub Lineage Emitter
+DataHub Lineage Emitter
 Called by the medallion_pipeline DAG to emit pipeline lineage metadata
 to DataHub GMS after each successful gold layer build.
 
@@ -24,10 +24,10 @@ logger = logging.getLogger("datahub-lineage-emitter")
 
 DATAHUB_GMS_URL = os.getenv("DATAHUB_GMS_URL", "http://datahub-gms:8080")
 PLATFORM = "trino"
-PLATFORM_INSTANCE = "tpl-lakehouse"
+PLATFORM_INSTANCE = "enterprise-lakehouse"
 ENV = "PROD"
 
-# ── Medallion Lineage Edges ──────────────────────────────────────────────────
+# Medallion Lineage Edges
 # Defines the Bronze → Silver → Gold lineage graph
 LINEAGE_EDGES = [
     # Silver ← Bronze
