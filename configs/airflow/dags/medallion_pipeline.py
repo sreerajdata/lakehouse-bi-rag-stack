@@ -23,11 +23,11 @@ SCRIPTS_DIR = ROOT_DIR / "scripts"
 DBT_DIR = ROOT_DIR / "dbt"
 KAFKA_BOOTSTRAP = "kafka:9092"
 TOPIC_MAP = {
-    "mes_events": "raw.mes.events",
-    "iqms_orders": "raw.iqms.orders",
-    "trackwise_deviations": "raw.trackwise.deviations",
-    "sap_ecc_orders": "raw.sap.orders",
-    "sop_documents": "raw.sop.documents",
+    "mes_events": "mes.production_orders",
+    "iqms_orders": "iqms.quality_tests",
+    "trackwise_deviations": "iqms.deviations",
+    "sap_ecc_orders": "sap.inventory_movements",
+    "sop_documents": "tms.training_completions",
 }
 TRINO_SQLALCHEMY_URL = "trino://admin@trino:8080/iceberg"
 SPARK_PACKAGES = ",".join(

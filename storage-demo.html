@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lakehouse Storage Map</title>
+  <style>
+    :root {
+      --bg: #f4efe7;
+      --card: #fffaf3;
+      --ink: #1f2a30;
+      --muted: #5d6a72;
+      --bronze: #8c4f22;
+      --silver: #56727f;
+      --gold: #8d6a06;
+      --line: #d9ccb8;
+      --ok: #205b3b;
+      --chip: #efe5d6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: linear-gradient(180deg, #f8f3eb 0%, #eee5d7 100%);
+      color: var(--ink);
+    }
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 28px 20px 60px;
+    }
+    h1, h2, h3 {
+      margin: 0;
+    }
+    .hero {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 24px;
+      box-shadow: 0 12px 30px rgba(44, 37, 26, 0.08);
+    }
+    .hero p {
+      margin: 10px 0 0;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .note {
+      margin-top: 14px;
+      padding: 12px 14px;
+      background: #fff2df;
+      border-left: 4px solid #ca7a1a;
+      border-radius: 8px;
+      color: #69461a;
+    }
+    .links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .links a {
+      text-decoration: none;
+      color: var(--ink);
+      background: var(--chip);
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-size: 14px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 18px;
+      margin-top: 22px;
+    }
+    .layer {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 12px 30px rgba(44, 37, 26, 0.08);
+    }
+    .layer header {
+      padding: 18px 20px;
+      color: #fff;
+    }
+    .bronze header { background: linear-gradient(135deg, #9b5a28, #714019); }
+    .silver header { background: linear-gradient(135deg, #64808d, #425965); }
+    .gold header { background: linear-gradient(135deg, #a58216, #7c6009); }
+    .layer .body {
+      padding: 18px 20px 20px;
+    }
+    .root {
+      padding: 10px 12px;
+      background: #faf4eb;
+      border: 1px dashed var(--line);
+      border-radius: 10px;
+      font-family: Consolas, monospace;
+      font-size: 13px;
+      margin-bottom: 12px;
+      overflow-wrap: anywhere;
+    }
+    details {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fffdf9;
+      margin-top: 10px;
+      padding: 10px 12px;
+    }
+    summary {
+      cursor: pointer;
+      font-weight: 600;
+    }
+    ul {
+      margin: 10px 0 0 18px;
+      padding: 0;
+    }
+    li {
+      margin: 6px 0;
+      line-height: 1.4;
+    }
+    code {
+      font-family: Consolas, monospace;
+      font-size: 12px;
+      background: #f5ede0;
+      padding: 2px 5px;
+      border-radius: 5px;
+    }
+    .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .foot {
+      margin-top: 22px;
+      background: #edf8ef;
+      border: 1px solid #bdd9c4;
+      color: var(--ok);
+      border-radius: 14px;
+      padding: 16px 18px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <h1>TPL Lakehouse Storage Map</h1>
+      <p>This page shows the real live storage structure behind the Bronze, Silver, and Gold Iceberg tables. It is demo-safe because the SeaweedFS filer is currently returning a 404 when opening the deeper <code>*.db/</code> folders directly.</p>
+      <div class="note">
+        Verified on 2026-04-23. Bronze is mixed across two roots in this dev stack. Silver and Gold are cleanly separated under the Iceberg warehouse root.
+      </div>
+      <div class="links">
+        <a href="http://localhost:8888/" target="_blank">SeaweedFS Filer Root</a>
+        <a href="http://localhost:8888/buckets/" target="_blank">Buckets</a>
+        <a href="http://localhost:8888/buckets/lakehouse-gold/warehouse/" target="_blank">Warehouse Root</a>
+        <a href="http://localhost:8180/ui/" target="_blank">Trino UI</a>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="layer bronze">
+        <header>
+          <h2>Bronze</h2>
+          <div class="small">Raw landed tables</div>
+        </header>
+        <div class="body">
+          <div class="root">Root A: buckets/lakehouse-gold/warehouse/bronze.db/</div>
+          <details open>
+            <summary>mes_production_orders-8ad26dd96e104cee8542006581744d6a</summary>
+            <ul>
+              <li><code>data/*.parquet</code></li>
+              <li><code>metadata/*.metadata.json</code></li>
+              <li><code>metadata/*.avro</code></li>
+              <li><code>metadata/*.stats</code></li>
+            </ul>
+          </details>
+          <details>
+            <summary>iqms_quality_tests-7c2761016ff04e269fec34bb4c0e975c</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>iqms_deviations-b5805139c8d6471091b501993d992766</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>tms_training_completions-bbda1e6e38ca4dd69397fb23f0f88808</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>trackwise_capas-1415ae0b279c43a29802bb5ff1689232</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+
+          <div class="root" style="margin-top:14px;">Root B: buckets/bronze/iceberg/</div>
+          <details>
+            <summary>mes_events</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>iqms_orders</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>sap_ecc_orders</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>sop_documents</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>trackwise_deviations</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+        </div>
+      </article>
+
+      <article class="layer silver">
+        <header>
+          <h2>Silver</h2>
+          <div class="small">Cleaned and enriched tables</div>
+        </header>
+        <div class="body">
+          <div class="root">Root: buckets/lakehouse-gold/warehouse/silver.db/</div>
+          <details open>
+            <summary>silver_mes_production_orders__dbt_tmp-187f7ed0b27f45e994339e168eca0bcc</summary>
+            <ul>
+              <li><code>data/*.parquet</code></li>
+              <li><code>metadata/*.metadata.json</code></li>
+              <li><code>metadata/*.avro</code></li>
+              <li><code>metadata/*.stats</code></li>
+            </ul>
+          </details>
+          <details>
+            <summary>silver_mes_events-d137e6baa6394095865e989628292152</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>silver_iqms_quality_tests__dbt_tmp-09580ff74a0149449e281597077bb6b7</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>silver_iqms_deviations__dbt_tmp-7f9fb220ae7b4a8b81a4f0fb05399d53</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>silver_production_orders__dbt_tmp-2c2100cf0ac1400faae16872896f151f</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>silver_quality_events__dbt_tmp-0c71397f89024bce90353712eaebe03a</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>silver_sap_inventory__dbt_tmp-fe4330ce57024b718648c9560a9958fe</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>silver_tms_training__dbt_tmp-e83570307d334359bd23a143b11b9a17</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>silver_trackwise_capas__dbt_tmp-6d645a7d35624a3db424ee84f74de8ef</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+        </div>
+      </article>
+
+      <article class="layer gold">
+        <header>
+          <h2>Gold</h2>
+          <div class="small">Business-ready marts</div>
+        </header>
+        <div class="body">
+          <div class="root">Root: buckets/lakehouse-gold/warehouse/gold.db/</div>
+          <details open>
+            <summary>gold_manufacturing_oee_mart__dbt_tmp-ccc18375cd0947ce81402e3cb2a00320</summary>
+            <ul>
+              <li><code>data/*.parquet</code></li>
+              <li><code>metadata/*.metadata.json</code></li>
+              <li><code>metadata/*.avro</code></li>
+              <li><code>metadata/*.stats</code></li>
+            </ul>
+          </details>
+          <details>
+            <summary>gold_compliance_capa_mart__dbt_tmp-8faa018124764bda97f9d1be8bdbaf2a</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>gold_batch_summary__dbt_tmp-6ec5e305e10b4578ba5761e55cda8275</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>gold_oee_dashboard__dbt_tmp-dcd40509b3ba44ea87932ab45a5a5092</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>gold_production_efficiency__dbt_tmp-fc9bea14613f444aa211e899e6f73ee7</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>gold_quality_kpis__dbt_tmp-1a331c81526448c1a4c531c1ebb0fcd4</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>gold_quality_risk_mart__dbt_tmp-4cdb01430ee9438e969de0f49fcd8164</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>gold_sap_inventory_mart__dbt_tmp-9d38f19ba397444e8a6af496ace75941</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+          <details>
+            <summary>gold_training_compliance_mart__dbt_tmp-313bdcb36541485da3b0cd5f7f780369</summary>
+            <ul><li><code>data/</code> and <code>metadata/</code></li></ul>
+          </details>
+        </div>
+      </article>
+    </section>
+
+    <section class="foot">
+      Use this explanation in the demo: each table folder contains a <code>data</code> subfolder with Parquet data files and a <code>metadata</code> subfolder with Iceberg snapshot and manifest files. Bronze is raw, Silver is transformed, and Gold is presentation-ready.
+    </section>
+  </div>
+</body>
+</html>

@@ -173,6 +173,14 @@ def main() -> None:
     )
     write_table(spark, sop_df, "lakehouse.bronze.sop_documents", f"{ICEBERG_BASE}/sop_documents")
 
+    # Create missing tables for dbt compatibility
+    # In a real scenario, these would be populated via Kafka or more CSVs.
+    spark.sql("CREATE TABLE IF NOT EXISTS lakehouse.bronze.tms_training_completions (record_id STRING, employee_id STRING, employee_name STRING, department STRING, training_name STRING, training_category STRING, scheduled_date STRING, completion_date STRING, score STRING, status STRING, trainer_id STRING, training_mode STRING, validity_months STRING, _source STRING, _ingested_at TIMESTAMP) USING iceberg")
+    spark.sql("CREATE TABLE IF NOT EXISTS lakehouse.bronze.trackwise_capas (_kafka_key STRING, _raw_payload STRING, _ingested_at TIMESTAMP, _row_hash STRING, _kafka_offset LONG, _source_system STRING, _ingest_year INT, _ingest_month INT, _ingest_day INT) USING iceberg")
+    spark.sql("CREATE TABLE IF NOT EXISTS lakehouse.bronze.mes_production_orders (_kafka_key STRING, _raw_payload STRING, _ingested_at TIMESTAMP, _row_hash STRING, _kafka_offset LONG, _source_system STRING, _ingest_year INT, _ingest_month INT, _ingest_day INT) USING iceberg")
+    spark.sql("CREATE TABLE IF NOT EXISTS lakehouse.bronze.iqms_quality_tests (_kafka_key STRING, _raw_payload STRING, _ingested_at TIMESTAMP, _row_hash STRING, _kafka_offset LONG, _source_system STRING, _ingest_year INT, _ingest_month INT, _ingest_day INT) USING iceberg")
+    spark.sql("CREATE TABLE IF NOT EXISTS lakehouse.bronze.iqms_deviations (_kafka_key STRING, _raw_payload STRING, _ingested_at TIMESTAMP, _row_hash STRING, _kafka_offset LONG, _source_system STRING, _ingest_year INT, _ingest_month INT, _ingest_day INT) USING iceberg")
+
     verification = spark.sql(
         """
         SELECT COUNT(*) AS row_count, MIN(event_ts) AS min_event_ts, MAX(event_ts) AS max_event_ts
