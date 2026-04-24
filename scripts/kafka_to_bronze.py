@@ -4,7 +4,7 @@ import sys
 from pyspark.sql import SparkSession, functions as F
 
 KAFKA_SERVERS = "kafka:9092"
-ICEBERG_BASE = "s3a://bronze/iceberg"
+ICEBERG_BASE = "s3a://lakehouse-bronze/warehouse"
 
 # Mapping datagen topics to Bronze tables
 TOPIC_TO_TABLE = {
@@ -34,7 +34,12 @@ def main() -> None:
     spark = build_spark()
     
     # Enable Iceberg support for creating tables if they don't exist
-    spark.sql("CREATE NAMESPACE IF NOT EXISTS lakehouse.bronze")
+    spark.sql(
+        f"""
+        CREATE NAMESPACE IF NOT EXISTS lakehouse.bronze
+        LOCATION '{ICEBERG_BASE}/bronze.db'
+        """
+    )
 
     for topic, table in TOPIC_TO_TABLE.items():
         print(f"\n>>> PROCESSING TOPIC: {topic} -> {table}")

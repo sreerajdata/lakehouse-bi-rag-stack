@@ -1,4 +1,4 @@
-{{ config(materialized='table') }}
+{{ config(materialized='table', properties=iceberg_table_properties('gold', 'gold_training_compliance_mart')) }}
 
 select
     department,

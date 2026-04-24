@@ -1,4 +1,4 @@
-{{ config(materialized='table') }}
+{{ config(materialized='table', properties=iceberg_table_properties('gold', 'gold_production_efficiency')) }}
 
 with weekly_summary as (
     select

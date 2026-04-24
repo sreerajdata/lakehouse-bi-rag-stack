@@ -1,4 +1,4 @@
-{{ config(materialized='table') }}
+{{ config(materialized='table', properties=iceberg_table_properties('silver', 'silver_sap_inventory')) }}
 
 with sap as (
     select

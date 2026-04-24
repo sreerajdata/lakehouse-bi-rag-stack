@@ -3,13 +3,21 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from pyspark.sql import SparkSession, functions as F
+import psycopg2
+from pyspark.sql import SparkSession, Window, functions as F
 
 
-BRONZE_BASE = "s3a://bronze/source"
-ICEBERG_BASE = "s3a://bronze/iceberg"
+BRONZE_SOURCE_BASE = "s3a://bronze/source"
+NIFI_INGEST_BASE = "s3a://bronze/nifi-ingest-v3"
+BRONZE_WAREHOUSE = "s3a://lakehouse-bronze/warehouse"
 ROOT_DIR = Path(__file__).resolve().parents[1]
 LOCAL_SOURCE_DIR = ROOT_DIR / "data" / "source"
+METASTORE_DSN = {
+    "host": "postgres",
+    "dbname": "hive_metastore",
+    "user": "admin",
+    "password": "admin123",
+}
 
 
 def build_spark() -> SparkSession:
@@ -19,7 +27,7 @@ def build_spark() -> SparkSession:
         .config("spark.sql.catalog.lakehouse", "org.apache.iceberg.spark.SparkCatalog")
         .config("spark.sql.catalog.lakehouse.type", "hive")
         .config("spark.sql.catalog.lakehouse.uri", "thrift://hive-metastore:9083")
-        .config("spark.sql.catalog.lakehouse.warehouse", ICEBERG_BASE)
+        .config("spark.sql.catalog.lakehouse.warehouse", BRONZE_WAREHOUSE)
         .config("spark.hadoop.fs.s3a.endpoint", "http://seaweedfs-s3:8333")
         .config("spark.hadoop.fs.s3a.access.key", "admin")
         .config("spark.hadoop.fs.s3a.secret.key", "admin123")
@@ -51,14 +59,64 @@ def sync_local_source_files(spark: SparkSession) -> None:
 
     jvm = spark._jvm
     hadoop_conf = spark._jsc.hadoopConfiguration()
-    fs = jvm.org.apache.hadoop.fs.FileSystem.get(hadoop_conf)
-    remote_base = jvm.org.apache.hadoop.fs.Path(BRONZE_BASE)
-    fs.mkdirs(remote_base)
+    remote_fs = jvm.org.apache.hadoop.fs.FileSystem.get(jvm.java.net.URI(BRONZE_SOURCE_BASE), hadoop_conf)
+    local_fs = jvm.org.apache.hadoop.fs.FileSystem.getLocal(hadoop_conf)
+    remote_base = jvm.org.apache.hadoop.fs.Path(BRONZE_SOURCE_BASE)
+    remote_fs.mkdirs(remote_base)
 
     for csv_path in sorted(LOCAL_SOURCE_DIR.glob("*.csv")):
         local_path = jvm.org.apache.hadoop.fs.Path(str(csv_path))
-        remote_path = jvm.org.apache.hadoop.fs.Path(f"{BRONZE_BASE}/{csv_path.name}")
-        fs.copyFromLocalFile(False, True, local_path, remote_path)
+        remote_path = jvm.org.apache.hadoop.fs.Path(f"{BRONZE_SOURCE_BASE}/{csv_path.name}")
+        jvm.org.apache.hadoop.fs.FileUtil.copy(local_fs, local_path, remote_fs, remote_path, False, True, hadoop_conf)
+
+
+def nifi_patterns(filename: str) -> list[str]:
+    return [
+        f"{NIFI_INGEST_BASE}/{filename}/*.json",
+    ]
+
+
+def matching_nifi_patterns(spark: SparkSession, filename: str) -> list[str]:
+    jvm = spark._jvm
+    hadoop_conf = spark._jsc.hadoopConfiguration()
+    fs = jvm.org.apache.hadoop.fs.FileSystem.get(jvm.java.net.URI(NIFI_INGEST_BASE), hadoop_conf)
+    matched_patterns = []
+    for location_pattern in nifi_patterns(filename):
+        matches = fs.globStatus(jvm.org.apache.hadoop.fs.Path(location_pattern))
+        if matches:
+            matched_patterns.append(location_pattern)
+    return matched_patterns
+
+
+def read_preferred_source(spark: SparkSession, filename: str, select_exprs: list, source_name: str):
+    nifi_locations = matching_nifi_patterns(spark, filename)
+    if nifi_locations:
+        nifi_df = (
+            spark.read.option("multiline", True).json(nifi_locations)
+            .select(*select_exprs)
+            .transform(lambda df: add_metadata(df, source_name, "nifi_s3_ingest"))
+        )
+        if nifi_df.take(1):
+            print(f"Using NiFi-ingested objects for {filename}")
+            return nifi_df
+
+    print(f"Using staged CSV fallback for {filename}")
+    return (
+        spark.read.option("header", True).csv(f"{BRONZE_SOURCE_BASE}/{filename}")
+        .select(*select_exprs)
+        .transform(lambda df: add_metadata(df, source_name, "csv_seed"))
+    )
+
+
+def deduplicate_rows(df, key_columns: list[str], order_column: Optional[str] = None):
+    if not key_columns:
+        return df
+
+    if order_column:
+        window = Window.partitionBy(*key_columns).orderBy(F.col(order_column).desc_nulls_last())
+        return df.withColumn("_row_rank", F.row_number().over(window)).where(F.col("_row_rank") == 1).drop("_row_rank")
+
+    return df.dropDuplicates(key_columns)
 
 
 def write_table(spark: SparkSession, df, table_name: str, location: str, partition_expr: Optional[str] = None):
@@ -76,110 +134,298 @@ def write_table(spark: SparkSession, df, table_name: str, location: str, partiti
     )
 
 
+def purge_metastore_table(schema_name: str, table_name: str) -> int:
+    with psycopg2.connect(**METASTORE_DSN) as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT t."TBL_ID", t."SD_ID", s."SERDE_ID", s."CD_ID"
+                FROM "TBLS" t
+                JOIN "DBS" d ON t."DB_ID" = d."DB_ID"
+                LEFT JOIN "SDS" s ON t."SD_ID" = s."SD_ID"
+                WHERE d."NAME" = %s AND t."TBL_NAME" = %s
+                """,
+                (schema_name, table_name),
+            )
+            rows = cur.fetchall()
+            if not rows:
+                return 0
+
+            tbl_ids = [row[0] for row in rows if row[0] is not None]
+            sd_ids = [row[1] for row in rows if row[1] is not None]
+            serde_ids = [row[2] for row in rows if row[2] is not None]
+            cd_ids = [row[3] for row in rows if row[3] is not None]
+
+            cur.execute('DELETE FROM "TABLE_PARAMS" WHERE "TBL_ID" = ANY(%s)', (tbl_ids,))
+            cur.execute('DELETE FROM "PARTITION_KEYS" WHERE "TBL_ID" = ANY(%s)', (tbl_ids,))
+            cur.execute('DELETE FROM "PARTITIONS" WHERE "TBL_ID" = ANY(%s)', (tbl_ids,))
+            cur.execute('DELETE FROM "TBLS" WHERE "TBL_ID" = ANY(%s)', (tbl_ids,))
+
+            if sd_ids:
+                cur.execute('DELETE FROM "SD_PARAMS" WHERE "SD_ID" = ANY(%s)', (sd_ids,))
+                cur.execute('DELETE FROM "SORT_COLS" WHERE "SD_ID" = ANY(%s)', (sd_ids,))
+                cur.execute('DELETE FROM "BUCKETING_COLS" WHERE "SD_ID" = ANY(%s)', (sd_ids,))
+                cur.execute('DELETE FROM "SKEWED_COL_NAMES" WHERE "SD_ID" = ANY(%s)', (sd_ids,))
+                cur.execute('DELETE FROM "SKEWED_VALUES" WHERE "SD_ID_OID" = ANY(%s)', (sd_ids,))
+                cur.execute(
+                    """
+                    DELETE FROM "SDS" s
+                    WHERE s."SD_ID" = ANY(%s)
+                      AND NOT EXISTS (SELECT 1 FROM "TBLS" t WHERE t."SD_ID" = s."SD_ID")
+                      AND NOT EXISTS (SELECT 1 FROM "PARTITIONS" p WHERE p."SD_ID" = s."SD_ID")
+                    """,
+                    (sd_ids,),
+                )
+
+            if serde_ids:
+                cur.execute(
+                    """
+                    DELETE FROM "SERDE_PARAMS" sp
+                    WHERE sp."SERDE_ID" = ANY(%s)
+                      AND NOT EXISTS (SELECT 1 FROM "SDS" s WHERE s."SERDE_ID" = sp."SERDE_ID")
+                    """,
+                    (serde_ids,),
+                )
+                cur.execute(
+                    """
+                    DELETE FROM "SERDES" se
+                    WHERE se."SERDE_ID" = ANY(%s)
+                      AND NOT EXISTS (SELECT 1 FROM "SDS" s WHERE s."SERDE_ID" = se."SERDE_ID")
+                    """,
+                    (serde_ids,),
+                )
+
+            if cd_ids:
+                cur.execute(
+                    """
+                    DELETE FROM "COLUMNS_V2" c
+                    WHERE c."CD_ID" = ANY(%s)
+                      AND NOT EXISTS (SELECT 1 FROM "SDS" s WHERE s."CD_ID" = c."CD_ID")
+                    """,
+                    (cd_ids,),
+                )
+                cur.execute(
+                    """
+                    DELETE FROM "CDS" cd
+                    WHERE cd."CD_ID" = ANY(%s)
+                      AND NOT EXISTS (SELECT 1 FROM "SDS" s WHERE s."CD_ID" = cd."CD_ID")
+                    """,
+                    (cd_ids,),
+                )
+
+            conn.commit()
+            return len(tbl_ids)
+
+
+def recreate_placeholder_table(spark: SparkSession, table_name: str, ddl_body: str, location: str) -> None:
+    schema_name, short_name = table_name.split(".", 2)[1:]
+    removed = purge_metastore_table(schema_name, short_name)
+    if removed:
+        print(f"Purged {removed} stale metastore registration(s) for {table_name}")
+    spark.sql(
+        f"""
+        CREATE TABLE {table_name} (
+            {ddl_body}
+        )
+        USING iceberg
+        LOCATION '{location}'
+        """
+    )
+
+
 def main() -> None:
     spark = build_spark()
+    sync_local_source_files(spark)
     # Source CSVs are expected to be staged under s3a://bronze/source ahead of this job.
-    spark.sql("CREATE NAMESPACE IF NOT EXISTS lakehouse.bronze")
+    spark.sql(
+        f"""
+        CREATE NAMESPACE IF NOT EXISTS lakehouse.bronze
+        LOCATION '{BRONZE_WAREHOUSE}/bronze.db'
+        """
+    )
 
     mes_df = (
-        spark.read.option("header", True).csv(f"{BRONZE_BASE}/mes_events.csv")
-        .select(
-            "event_id",
-            "machine_id",
-            "batch_id",
-            "product_code",
-            "parameter_name",
-            F.col("parameter_value").cast("double").alias("parameter_value"),
-            "unit",
-            "operator_id",
-            "shift",
-            F.to_timestamp("event_ts").alias("event_ts"),
-            "status",
+        read_preferred_source(
+            spark,
+            "mes_events.csv",
+            [
+                "event_id",
+                "machine_id",
+                "batch_id",
+                "product_code",
+                "parameter_name",
+                F.col("parameter_value").cast("double").alias("parameter_value"),
+                "unit",
+                "operator_id",
+                "shift",
+                F.to_timestamp("event_ts").alias("event_ts"),
+                "status",
+            ],
+            "MES",
         )
-        .transform(lambda df: add_metadata(df, "MES", "csv_seed"))
+        .transform(lambda df: deduplicate_rows(df, ["event_id"], "event_ts"))
         .transform(lambda df: cluster_for_partition(df, "event_ts"))
     )
-    write_table(spark, mes_df, "lakehouse.bronze.mes_events", f"{ICEBERG_BASE}/mes_events", "days(event_ts)")
+    write_table(
+        spark,
+        mes_df,
+        "lakehouse.bronze.mes_events",
+        f"{BRONZE_WAREHOUSE}/bronze.db/mes_events",
+        "days(event_ts)",
+    )
 
     iqms_df = (
-        spark.read.option("header", True).csv(f"{BRONZE_BASE}/iqms_orders.csv")
-        .select(
-            "order_id",
-            "product_code",
-            "batch_id",
-            F.col("quantity").cast("int").alias("quantity"),
-            "uom",
-            F.to_timestamp("planned_start").alias("planned_start"),
-            F.to_timestamp("actual_start").alias("actual_start"),
-            F.to_timestamp("actual_end").alias("actual_end"),
-            "status",
-            "line_id",
+        read_preferred_source(
+            spark,
+            "iqms_orders.csv",
+            [
+                "order_id",
+                "product_code",
+                "batch_id",
+                F.col("quantity").cast("int").alias("quantity"),
+                "uom",
+                F.to_timestamp("planned_start").alias("planned_start"),
+                F.to_timestamp("actual_start").alias("actual_start"),
+                F.to_timestamp("actual_end").alias("actual_end"),
+                "status",
+                "line_id",
+            ],
+            "IQMS",
         )
-        .transform(lambda df: add_metadata(df, "IQMS", "csv_seed"))
+        .transform(lambda df: deduplicate_rows(df, ["order_id"], "actual_start"))
     )
-    write_table(spark, iqms_df, "lakehouse.bronze.iqms_orders", f"{ICEBERG_BASE}/iqms_orders")
+    write_table(spark, iqms_df, "lakehouse.bronze.iqms_orders", f"{BRONZE_WAREHOUSE}/bronze.db/iqms_orders")
 
     trackwise_df = (
-        spark.read.option("header", True).csv(f"{BRONZE_BASE}/trackwise_deviations.csv")
-        .select(
-            "deviation_id",
-            "batch_id",
-            "product_code",
-            "deviation_type",
-            "severity",
-            "description",
-            "reported_by",
-            F.to_timestamp("reported_ts").alias("reported_ts"),
-            "status",
-            F.to_timestamp("resolution_ts").alias("resolution_ts"),
+        read_preferred_source(
+            spark,
+            "trackwise_deviations.csv",
+            [
+                "deviation_id",
+                "batch_id",
+                "product_code",
+                "deviation_type",
+                "severity",
+                "description",
+                "reported_by",
+                F.to_timestamp("reported_ts").alias("reported_ts"),
+                "status",
+                F.to_timestamp("resolution_ts").alias("resolution_ts"),
+            ],
+            "TrackWise",
         )
-        .transform(lambda df: add_metadata(df, "TrackWise", "csv_seed"))
+        .transform(lambda df: deduplicate_rows(df, ["deviation_id"], "reported_ts"))
     )
-    write_table(spark, trackwise_df, "lakehouse.bronze.trackwise_deviations", f"{ICEBERG_BASE}/trackwise_deviations")
+    write_table(
+        spark,
+        trackwise_df,
+        "lakehouse.bronze.trackwise_deviations",
+        f"{BRONZE_WAREHOUSE}/bronze.db/trackwise_deviations",
+    )
 
     sap_df = (
-        spark.read.option("header", True).csv(f"{BRONZE_BASE}/sap_ecc_orders.csv")
-        .select(
-            "po_number",
-            "material_code",
-            "plant",
-            "storage_location",
-            F.col("planned_qty").cast("int").alias("planned_qty"),
-            F.col("actual_qty").cast("int").alias("actual_qty"),
-            "uom",
-            F.to_date("posting_date").alias("posting_date"),
-            "cost_center",
-            F.col("total_cost").cast("double").alias("total_cost"),
-            "currency",
+        read_preferred_source(
+            spark,
+            "sap_ecc_orders.csv",
+            [
+                "po_number",
+                "material_code",
+                "plant",
+                "storage_location",
+                F.col("planned_qty").cast("int").alias("planned_qty"),
+                F.col("actual_qty").cast("int").alias("actual_qty"),
+                "uom",
+                F.to_date("posting_date").alias("posting_date"),
+                "cost_center",
+                F.col("total_cost").cast("double").alias("total_cost"),
+                "currency",
+            ],
+            "SAP ECC",
         )
-        .transform(lambda df: add_metadata(df, "SAP ECC", "csv_seed"))
+        .transform(lambda df: deduplicate_rows(df, ["po_number"], "posting_date"))
     )
-    write_table(spark, sap_df, "lakehouse.bronze.sap_ecc_orders", f"{ICEBERG_BASE}/sap_ecc_orders")
+    write_table(
+        spark,
+        sap_df,
+        "lakehouse.bronze.sap_ecc_orders",
+        f"{BRONZE_WAREHOUSE}/bronze.db/sap_ecc_orders",
+    )
 
     sop_df = (
-        spark.read.option("header", True).csv(f"{BRONZE_BASE}/sop_documents.csv")
-        .select(
-            "doc_id",
-            "doc_type",
-            "title",
-            "version",
-            F.to_date("effective_date").alias("effective_date"),
-            "author",
-            "department",
-            "file_path",
-            F.col("page_count").cast("int").alias("page_count"),
+        read_preferred_source(
+            spark,
+            "sop_documents.csv",
+            [
+                "doc_id",
+                "doc_type",
+                "title",
+                "version",
+                F.to_date("effective_date").alias("effective_date"),
+                "author",
+                "department",
+                "file_path",
+                F.col("page_count").cast("int").alias("page_count"),
+            ],
+            "Document Index",
         )
-        .transform(lambda df: add_metadata(df, "Document Index", "csv_seed"))
+        .transform(lambda df: deduplicate_rows(df, ["doc_id"], "effective_date"))
     )
-    write_table(spark, sop_df, "lakehouse.bronze.sop_documents", f"{ICEBERG_BASE}/sop_documents")
+    write_table(
+        spark,
+        sop_df,
+        "lakehouse.bronze.sop_documents",
+        f"{BRONZE_WAREHOUSE}/bronze.db/sop_documents",
+    )
 
     # Create missing tables for dbt compatibility
     # In a real scenario, these would be populated via Kafka or more CSVs.
-    spark.sql("CREATE TABLE IF NOT EXISTS lakehouse.bronze.tms_training_completions (record_id STRING, employee_id STRING, employee_name STRING, department STRING, training_name STRING, training_category STRING, scheduled_date STRING, completion_date STRING, score STRING, status STRING, trainer_id STRING, training_mode STRING, validity_months STRING, _source STRING, _ingested_at TIMESTAMP) USING iceberg")
-    spark.sql("CREATE TABLE IF NOT EXISTS lakehouse.bronze.trackwise_capas (_kafka_key STRING, _raw_payload STRING, _ingested_at TIMESTAMP, _row_hash STRING, _kafka_offset LONG, _source_system STRING, _ingest_year INT, _ingest_month INT, _ingest_day INT) USING iceberg")
-    spark.sql("CREATE TABLE IF NOT EXISTS lakehouse.bronze.mes_production_orders (_kafka_key STRING, _raw_payload STRING, _ingested_at TIMESTAMP, _row_hash STRING, _kafka_offset LONG, _source_system STRING, _ingest_year INT, _ingest_month INT, _ingest_day INT) USING iceberg")
-    spark.sql("CREATE TABLE IF NOT EXISTS lakehouse.bronze.iqms_quality_tests (_kafka_key STRING, _raw_payload STRING, _ingested_at TIMESTAMP, _row_hash STRING, _kafka_offset LONG, _source_system STRING, _ingest_year INT, _ingest_month INT, _ingest_day INT) USING iceberg")
-    spark.sql("CREATE TABLE IF NOT EXISTS lakehouse.bronze.iqms_deviations (_kafka_key STRING, _raw_payload STRING, _ingested_at TIMESTAMP, _row_hash STRING, _kafka_offset LONG, _source_system STRING, _ingest_year INT, _ingest_month INT, _ingest_day INT) USING iceberg")
+    recreate_placeholder_table(
+        spark,
+        "lakehouse.bronze.tms_training_completions",
+        """
+        record_id STRING, employee_id STRING, employee_name STRING, department STRING,
+        training_name STRING, training_category STRING, scheduled_date STRING,
+        completion_date STRING, score STRING, status STRING, trainer_id STRING,
+        training_mode STRING, validity_months STRING, _source STRING, _ingested_at TIMESTAMP
+        """,
+        f"{BRONZE_WAREHOUSE}/bronze.db/tms_training_completions",
+    )
+    recreate_placeholder_table(
+        spark,
+        "lakehouse.bronze.trackwise_capas",
+        """
+        _kafka_key STRING, _raw_payload STRING, _ingested_at TIMESTAMP, _row_hash STRING,
+        _kafka_offset LONG, _source_system STRING, _ingest_year INT, _ingest_month INT, _ingest_day INT
+        """,
+        f"{BRONZE_WAREHOUSE}/bronze.db/trackwise_capas",
+    )
+    recreate_placeholder_table(
+        spark,
+        "lakehouse.bronze.mes_production_orders",
+        """
+        _kafka_key STRING, _raw_payload STRING, _ingested_at TIMESTAMP, _row_hash STRING,
+        _kafka_offset LONG, _source_system STRING, _ingest_year INT, _ingest_month INT, _ingest_day INT
+        """,
+        f"{BRONZE_WAREHOUSE}/bronze.db/mes_production_orders",
+    )
+    recreate_placeholder_table(
+        spark,
+        "lakehouse.bronze.iqms_quality_tests",
+        """
+        _kafka_key STRING, _raw_payload STRING, _ingested_at TIMESTAMP, _row_hash STRING,
+        _kafka_offset LONG, _source_system STRING, _ingest_year INT, _ingest_month INT, _ingest_day INT
+        """,
+        f"{BRONZE_WAREHOUSE}/bronze.db/iqms_quality_tests",
+    )
+    recreate_placeholder_table(
+        spark,
+        "lakehouse.bronze.iqms_deviations",
+        """
+        _kafka_key STRING, _raw_payload STRING, _ingested_at TIMESTAMP, _row_hash STRING,
+        _kafka_offset LONG, _source_system STRING, _ingest_year INT, _ingest_month INT, _ingest_day INT
+        """,
+        f"{BRONZE_WAREHOUSE}/bronze.db/iqms_deviations",
+    )
 
     verification = spark.sql(
         """

@@ -5,7 +5,8 @@
 .PHONY: help up-core up-ingestion up-processing up-lakehouse \
         up-analytics up-ai up-monitoring up-governance up-cicd \
         up-all down clean logs status pull-images \
-        register-connectors integration-test dbt-compile
+        register-connectors integration-test dbt-compile \
+        show-medallion-layout
 
 COMPOSE = docker compose
 ENV_FILE = --env-file .env
@@ -243,6 +244,9 @@ register-connectors:
 
 dbt-compile:
 	@docker exec lakehouse_dbt dbt compile --profiles-dir /usr/app/dbt
+
+show-medallion-layout:
+	@bash scripts/show_medallion_storage_layout.sh
 
 # ── Integration Testing ──────────────────────────────────────────────────────
 integration-test:

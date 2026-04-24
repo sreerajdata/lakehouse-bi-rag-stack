@@ -2,7 +2,8 @@
     materialized='incremental',
     unique_key='event_id',
     incremental_strategy='merge',
-    on_schema_change='append_new_columns'
+    on_schema_change='append_new_columns',
+    properties=iceberg_table_properties('silver', 'silver_mes_events')
 ) }}
 
 with mes as (

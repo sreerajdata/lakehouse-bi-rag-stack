@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="Lakehouse-Integration" tests="10" failures="2" timestamp="2026-04-24T12:14:22.800660">
+  <testcase name="SeaweedFS S3 Storage" time="0.001">
+    <failure message="Exception: No module named 'boto3'"/>
+  </testcase>
+  <testcase name="Kafka Messaging" time="0.808">
+  </testcase>
+  <testcase name="Trino Connectivity" time="1.547">
+  </testcase>
+  <testcase name="Trino Iceberg Catalog" time="0.568">
+  </testcase>
+  <testcase name="Airflow Orchestration" time="0.722">
+  </testcase>
+  <testcase name="Spark Processing" time="0.543">
+  </testcase>
+  <testcase name="Ollama LLM" time="0.565">
+    <failure message="No models loaded in Ollama"/>
+  </testcase>
+  <testcase name="Milvus Vector Store" time="1.066">
+  </testcase>
+  <testcase name="Grafana Dashboards" time="0.551">
+  </testcase>
+  <testcase name="Prometheus Monitoring" time="0.575">
+  </testcase>
+</testsuite>

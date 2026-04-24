@@ -1,4 +1,4 @@
-{{ config(materialized='table') }}
+{{ config(materialized='table', properties=iceberg_table_properties('gold', 'gold_quality_risk_mart')) }}
 
 with production as (
     select

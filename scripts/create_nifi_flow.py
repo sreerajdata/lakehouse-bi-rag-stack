@@ -7,7 +7,6 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime
 from pathlib import Path
 
 
@@ -256,7 +255,8 @@ def cleanup_root(root_pg_id: str) -> None:
             delete_processor(processor["id"])
 
     for group in flow["processGroupFlow"]["flow"]["processGroups"]:
-        if group["component"]["name"] in {"FLOW 1 - CSV File Ingestion", "FLOW 2 - Kafka Consumer Flow"}:
+        group_name = group["component"]["name"]
+        if group_name.startswith("FLOW 1 - CSV File Ingestion") or group_name.startswith("FLOW 2 - Kafka Consumer Flow"):
             delete_process_group(group["id"])
     for service in get_process_group_controller_services(root_pg_id):
         if service["component"]["name"].startswith("tmp-"):
@@ -295,12 +295,11 @@ def aws_ls(prefix: str) -> str:
 def main() -> None:
     root_pg_id = _detect_root_pg_id()
     print(f"Using NiFi at {BASE_URL}, root PG = {root_pg_id}")
-    if os.getenv("NIFI_CLEANUP_EXISTING", "false").lower() == "true":
+    if os.getenv("NIFI_CLEANUP_EXISTING", "true").lower() == "true":
         cleanup_root(root_pg_id)
 
-    flow_suffix = datetime.now().strftime("%H%M%S")
-    flow1 = create_process_group(root_pg_id, f"FLOW 1 - CSV File Ingestion {flow_suffix}", 40.0, 80.0)
-    flow2 = create_process_group(root_pg_id, f"FLOW 2 - Kafka Consumer Flow {flow_suffix}", 40.0, 520.0)
+    flow1 = create_process_group(root_pg_id, "FLOW 1 - CSV File Ingestion", 40.0, 80.0)
+    flow2 = create_process_group(root_pg_id, "FLOW 2 - Kafka Consumer Flow", 40.0, 520.0)
     flow1_id = flow1["component"]["id"]
     flow2_id = flow2["component"]["id"]
 
@@ -315,27 +314,38 @@ def main() -> None:
     for service_id in (csv_reader["id"], csv_writer["id"], json_writer["id"]):
         enable_controller_service(service_id)
 
-    get_file = create_processor(flow1_id, "GetFile", "org.apache.nifi.processors.standard.GetFile", "nifi-standard-nar", 0.0, 0.0)
-    split_record = create_processor(flow1_id, "SplitRecord", "org.apache.nifi.processors.standard.SplitRecord", "nifi-standard-nar", 260.0, 0.0)
-    convert_record = create_processor(flow1_id, "ConvertRecord", "org.apache.nifi.processors.standard.ConvertRecord", "nifi-standard-nar", 520.0, 0.0)
-    publish_kafka = create_processor(flow1_id, "PublishKafka", "org.apache.nifi.processors.kafka.pubsub.PublishKafka_2_6", "nifi-kafka-2-6-nar", 780.0, 0.0)
-    put_s3_ingest = create_processor(flow1_id, "PutS3Object", "org.apache.nifi.processors.aws.s3.PutS3Object", "nifi-aws-nar", 1040.0, 0.0)
-    log_attribute = create_processor(flow1_id, "LogAttribute", "org.apache.nifi.processors.standard.LogAttribute", "nifi-standard-nar", 1300.0, 0.0)
+    list_file = create_processor(flow1_id, "ListFile", "org.apache.nifi.processors.standard.ListFile", "nifi-standard-nar", 0.0, 0.0)
+    fetch_file = create_processor(flow1_id, "FetchFile", "org.apache.nifi.processors.standard.FetchFile", "nifi-standard-nar", 260.0, 0.0)
+    split_record = create_processor(flow1_id, "SplitRecord", "org.apache.nifi.processors.standard.SplitRecord", "nifi-standard-nar", 520.0, 0.0)
+    stamp_source_name = create_processor(flow1_id, "StampSourceFilename", "org.apache.nifi.processors.attributes.UpdateAttribute", "nifi-update-attribute-nar", 780.0, 0.0)
+    convert_record = create_processor(flow1_id, "ConvertRecord", "org.apache.nifi.processors.standard.ConvertRecord", "nifi-standard-nar", 1040.0, 0.0)
+    publish_kafka = create_processor(flow1_id, "PublishKafka", "org.apache.nifi.processors.kafka.pubsub.PublishKafka_2_6", "nifi-kafka-2-6-nar", 1300.0, 0.0)
+    put_s3_ingest = create_processor(flow1_id, "PutS3Object", "org.apache.nifi.processors.aws.s3.PutS3Object", "nifi-aws-nar", 1560.0, 0.0)
+    log_attribute = create_processor(flow1_id, "LogAttribute", "org.apache.nifi.processors.standard.LogAttribute", "nifi-standard-nar", 1820.0, 0.0)
 
     update_processor(
-        get_file["id"],
+        list_file["id"],
         {
             "Input Directory": "/opt/nifi/data/source",
             "File Filter": ".*\\.csv",
-            "Keep Source File": "true",
             "Recurse Subdirectories": "false",
         },
         [],
     )
     update_processor(
+        fetch_file["id"],
+        {},
+        ["failure", "not.found", "permission.denied"],
+    )
+    update_processor(
         split_record["id"],
         {"Record Reader": csv_reader["id"], "Record Writer": csv_writer["id"], "Records Per Split": "1"},
         ["failure", "original"],
+    )
+    update_processor(
+        stamp_source_name["id"],
+        {"source_filename": "${filename}"},
+        ["failure"],
     )
     update_processor(
         convert_record["id"],
@@ -351,7 +361,7 @@ def main() -> None:
         put_s3_ingest["id"],
         {
             "Bucket": "bronze",
-            "Object Key": "nifi-ingest/${now():format(\"yyyyMMddHHmmssSSS\")}-${filename}-${fragment.index}.json",
+            "Object Key": "nifi-ingest-v3/${source_filename}/${now():format(\"yyyyMMddHHmmssSSS\")}-${fragment.index}.json",
             "Endpoint Override URL": "http://seaweedfs-s3:8333",
             "Access Key": "admin",
             "Secret Key": "admin123",
@@ -363,8 +373,10 @@ def main() -> None:
     )
     update_processor(log_attribute["id"], {}, ["success"])
 
-    create_connection(flow1_id, get_file["id"], split_record["id"], "success")
-    create_connection(flow1_id, split_record["id"], convert_record["id"], "splits")
+    create_connection(flow1_id, list_file["id"], fetch_file["id"], "success")
+    create_connection(flow1_id, fetch_file["id"], split_record["id"], "success")
+    create_connection(flow1_id, split_record["id"], stamp_source_name["id"], "splits")
+    create_connection(flow1_id, stamp_source_name["id"], convert_record["id"], "success")
     create_connection(flow1_id, convert_record["id"], publish_kafka["id"], "success")
     create_connection(flow1_id, publish_kafka["id"], put_s3_ingest["id"], "success")
     create_connection(flow1_id, put_s3_ingest["id"], log_attribute["id"], "success")
@@ -427,8 +439,10 @@ def main() -> None:
     create_connection(flow2_id, route_on_attr["id"], put_s3_fail["id"], "unmatched")
 
     for processor_id in [
-        get_file["id"],
+        list_file["id"],
+        fetch_file["id"],
         split_record["id"],
+        stamp_source_name["id"],
         convert_record["id"],
         publish_kafka["id"],
         put_s3_ingest["id"],
@@ -445,14 +459,14 @@ def main() -> None:
     verify_processors_running(flow1_id)
     verify_processors_running(flow2_id)
 
-    nifi_ingest_objects = aws_ls("s3://bronze/nifi-ingest")
-    if "nifi-ingest/" not in nifi_ingest_objects:
-        raise RuntimeError("No files found under s3://bronze/nifi-ingest after starting the flow")
+    nifi_ingest_objects = aws_ls("s3://bronze/nifi-ingest-v3")
+    if "nifi-ingest-v3/" not in nifi_ingest_objects:
+        raise RuntimeError("No files found under s3://bronze/nifi-ingest-v3 after starting the flow")
 
     print("NiFi flow created successfully.")
     print("FLOW 1 processors are RUNNING.")
     print("FLOW 2 processors are RUNNING.")
-    print("Objects found under s3://bronze/nifi-ingest/:")
+    print("Objects found under s3://bronze/nifi-ingest-v3/:")
     print(nifi_ingest_objects)
 
 

@@ -1,4 +1,4 @@
-{{ config(materialized='table') }}
+{{ config(materialized='table', properties=iceberg_table_properties('silver', 'silver_production_orders')) }}
 
 with iqms as (
     select

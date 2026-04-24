@@ -1,4 +1,4 @@
-{{ config(materialized='table') }}
+{{ config(materialized='table', properties=iceberg_table_properties('silver', 'silver_mes_production_orders')) }}
 
 with bronze_source as (
     select

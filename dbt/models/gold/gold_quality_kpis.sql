@@ -1,4 +1,4 @@
-{{ config(materialized='table') }}
+{{ config(materialized='table', properties=iceberg_table_properties('gold', 'gold_quality_kpis')) }}
 
 with batch_summary as (
     select * from {{ ref('gold_batch_summary') }}

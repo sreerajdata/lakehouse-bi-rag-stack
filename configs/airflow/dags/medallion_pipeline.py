@@ -51,7 +51,7 @@ SPARK_CONF = {
     "spark.sql.catalog.lakehouse": "org.apache.iceberg.spark.SparkCatalog",
     "spark.sql.catalog.lakehouse.type": "hive",
     "spark.sql.catalog.lakehouse.uri": "thrift://hive-metastore:9083",
-    "spark.sql.catalog.lakehouse.warehouse": "s3a://bronze/iceberg",
+    "spark.sql.catalog.lakehouse.warehouse": "s3a://lakehouse-bronze/warehouse",
 }
 
 

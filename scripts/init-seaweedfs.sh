@@ -23,10 +23,14 @@ for BUCKET in $BUCKETS; do
   fi
 done
 
-# Create directory structure in bronze buckets
+# Create directory structure in medallion buckets
 for SYSTEM in mes iqms historian trackwise sap tms nifi_flows docs; do
   aws --endpoint-url=$ENDPOINT s3api put-object --bucket bronze --key "${SYSTEM}/" > /dev/null 2>&1 || true
   aws --endpoint-url=$ENDPOINT s3api put-object --bucket lakehouse-bronze --key "${SYSTEM}/" > /dev/null 2>&1 || true
+done
+
+for LAYER in bronze silver gold; do
+  aws --endpoint-url=$ENDPOINT s3api put-object --bucket "lakehouse-$LAYER" --key "warehouse/" > /dev/null 2>&1 || true
 done
 
 echo "Bucket initialization complete."

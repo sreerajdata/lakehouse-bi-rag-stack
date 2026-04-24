@@ -29,7 +29,7 @@
   <!-- SeaweedFS as S3-Compatible Warehouse -->
   <property>
     <name>hive.metastore.warehouse.dir</name>
-    <value>s3a://lakehouse-gold/warehouse</value>
+    <value>s3a://lakehouse-models/warehouse</value>
   </property>
 
   <!-- S3A Filesystem (SeaweedFS) -->

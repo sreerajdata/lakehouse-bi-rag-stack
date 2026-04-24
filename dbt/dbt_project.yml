@@ -23,12 +23,14 @@ models:
       +materialized: incremental
       +unique_key: _row_hash
       +on_schema_change: append_new_columns
+      +on_table_exists: drop
       +schema: silver
       +tags: ["silver", "cleaned"]
       +incremental_strategy: merge
 
     gold:
       +materialized: table
+      +on_table_exists: drop
       +schema: gold
       +tags: ["gold", "mart"]
 

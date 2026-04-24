@@ -1,4 +1,4 @@
-{{ config(materialized='table') }}
+{{ config(materialized='table', properties=iceberg_table_properties('silver', 'silver_tms_training')) }}
 
 select
     cast(record_id as varchar) as record_id,
