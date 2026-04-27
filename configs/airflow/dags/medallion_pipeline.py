@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from datetime import datetime, timedelta
@@ -21,6 +22,15 @@ from confluent_kafka.admin import AdminClient
 ROOT_DIR = Path("/opt/airflow")
 SCRIPTS_DIR = ROOT_DIR / "scripts"
 DBT_DIR = ROOT_DIR / "dbt"
+SOURCE_DIR = ROOT_DIR / "data" / "source"
+BRONZE_MANIFEST_PATH = ROOT_DIR / "data" / ".bronze_source_manifest.json"
+PRIMARY_SOURCE_FILES = [
+    "mes_events.csv",
+    "iqms_orders.csv",
+    "trackwise_deviations.csv",
+    "sap_ecc_orders.csv",
+    "sop_documents.csv",
+]
 KAFKA_BOOTSTRAP = "kafka:9092"
 TOPIC_MAP = {
     "mes_events": "mes.production_orders",
@@ -76,6 +86,23 @@ def run_python_script(script_name: str, extra_env: Optional[dict] = None) -> str
     return result.stdout
 
 
+def build_source_manifest() -> dict[str, dict[str, int]]:
+    manifest = {}
+    for filename in PRIMARY_SOURCE_FILES:
+        path = SOURCE_DIR / filename
+        if not path.exists():
+            continue
+        stat = path.stat()
+        manifest[filename] = {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+    return manifest
+
+
+def load_previous_manifest() -> dict[str, dict[str, int]]:
+    if not BRONZE_MANIFEST_PATH.exists():
+        return {}
+    return json.loads(BRONZE_MANIFEST_PATH.read_text(encoding="utf-8"))
+
+
 def generate_source_data_task():
     print("Skipping generation (handled by external synthetic_datagen container)")
     return "Skipped"
@@ -83,6 +110,33 @@ def generate_source_data_task():
 def publish_to_kafka_task():
     print("Skipping publish (handled by external synthetic_datagen container)")
     return "Skipped"
+
+
+def run_bronze_ingest_task():
+    current_manifest = build_source_manifest()
+    previous_manifest = load_previous_manifest()
+    if current_manifest and current_manifest == previous_manifest:
+        print("Skipping Bronze Spark sync because source files are unchanged.")
+        return "Skipped"
+
+    result = subprocess.run(
+        [
+            "spark-submit",
+            "--packages",
+            SPARK_PACKAGES,
+            str(SCRIPTS_DIR / "create_bronze_tables.py"),
+        ],
+        cwd=str(ROOT_DIR),
+        capture_output=True,
+        text=True,
+    )
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print(result.stderr)
+    if result.returncode != 0:
+        raise RuntimeError(f"spark bronze ingest failed with exit code {result.returncode}")
+    return "Completed"
 
 
 def check_kafka_topics_task():
@@ -208,13 +262,9 @@ with DAG(
         python_callable=check_kafka_topics_task,
     )
 
-    spark_bronze_ingest = SparkSubmitOperator(
+    spark_bronze_ingest = PythonOperator(
         task_id="spark_bronze_ingest",
-        conn_id="spark_lakehouse",
-        application=str(SCRIPTS_DIR / "create_bronze_tables.py"),
-        conf=SPARK_CONF,
-        packages=SPARK_PACKAGES,
-        verbose=True,
+        python_callable=run_bronze_ingest_task,
     )
 
     verify_bronze_counts = TrinoOperator(

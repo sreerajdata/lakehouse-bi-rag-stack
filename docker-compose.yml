@@ -9,8 +9,8 @@ x-airflow-common: &airflow-common
     dockerfile: Dockerfile
   environment: &airflow-env
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
-    AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
-    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres:5432/airflow
+    AIRFLOW__CORE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@lakehouse_postgres:5432/airflow
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@lakehouse_postgres:5432/airflow
     AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
     AIRFLOW__CORE__FERNET_KEY: "81HqDtbqAywKSOumSha3BhWNOdQ26slT6K0YaZeZyPs="
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
@@ -510,6 +510,7 @@ services:
     <<: *airflow-common
     container_name: lakehouse_airflow_web
     profiles: ["processing", "all"]
+    restart: unless-stopped
     command: webserver
     ports:
       - "8280:8080"
@@ -526,6 +527,7 @@ services:
     <<: *airflow-common
     container_name: lakehouse_airflow_scheduler
     profiles: ["processing", "all"]
+    restart: unless-stopped
     command: scheduler
     depends_on:
       airflow-init:
@@ -535,13 +537,13 @@ services:
     <<: *airflow-common
     container_name: lakehouse_airflow_worker
     profiles: ["processing", "all"]
+    restart: unless-stopped
     command:
       - bash
       - -c
       - |
         rm -f /opt/airflow/airflow-worker.pid
         exec airflow celery worker
-    restart: unless-stopped
     depends_on:
       airflow-init:
         condition: service_completed_successfully

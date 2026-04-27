@@ -8,9 +8,11 @@ ICEBERG_BASE = "s3a://lakehouse-bronze/warehouse"
 
 # Mapping datagen topics to Bronze tables
 TOPIC_TO_TABLE = {
-    "mes.production_orders": "lakehouse.bronze.mes_production_orders",
-    "iqms.quality_tests": "lakehouse.bronze.iqms_quality_tests",
+    "mes.production_orders":  "lakehouse.bronze.mes_production_orders",
+    "iqms.quality_tests":     "lakehouse.bronze.iqms_quality_tests",
     "tms.training_completions": "lakehouse.bronze.tms_training_completions",
+    "trackwise.capas":        "lakehouse.bronze.trackwise_capas",
+    "iqms.deviations":        "lakehouse.bronze.iqms_deviations",
 }
 
 def build_spark() -> SparkSession:
@@ -66,10 +68,7 @@ def main() -> None:
                 df.select(
                     F.col("key").cast("string").alias("_kafka_key"),
                     F.col("value").cast("string").alias("_raw_payload"),
-                    F.col("topic").alias("_kafka_topic"),
-                    F.col("partition").alias("_kafka_partition"),
-                    F.col("offset").alias("_kafka_offset"),
-                    F.col("timestamp").alias("_kafka_timestamp")
+                    F.col("offset").alias("_kafka_offset")
                 )
                 .withColumn("_ingested_at", F.current_timestamp())
                 .withColumn("_source_system", F.lit(topic.split('.')[0].upper()))
@@ -77,12 +76,16 @@ def main() -> None:
                 .withColumn("_ingest_year", F.year(F.col("_ingested_at")))
                 .withColumn("_ingest_month", F.month(F.col("_ingested_at")))
                 .withColumn("_ingest_day", F.dayofmonth(F.col("_ingested_at")))
-                .withColumn("_ingest_hour", F.hour(F.col("_ingested_at")))
+            )
+
+            # Match order of columns in placeholder table
+            final_df = processed_df.select(
+                "_kafka_key", "_raw_payload", "_ingested_at", "_row_hash", 
+                "_kafka_offset", "_source_system", "_ingest_year", "_ingest_month", "_ingest_day"
             )
 
             # Write to Iceberg
-            # We use append() to add to existing data (like those 3 rows)
-            processed_df.writeTo(table).append()
+            final_df.writeTo(table).append()
             print(f"+++ Success: Ingested {topic} into {table}")
 
         except Exception as e:

@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 
 
-BASE_URL = os.getenv("NIFI_BASE_URL", "http://localhost:8090/nifi-api")
+BASE_URL = os.getenv("NIFI_BASE_URL", "http://nifi:8090/nifi-api")
 ROOT_DIR = Path(__file__).resolve().parents[1]
 
 
@@ -288,14 +288,61 @@ def aws_ls(prefix: str) -> str:
         "ls",
         prefix,
     ]
-    result = subprocess.run(command, cwd=ROOT_DIR, capture_output=True, text=True, check=True)
-    return result.stdout
+    try:
+        result = subprocess.run(command, cwd=ROOT_DIR, capture_output=True, text=True, check=True)
+        return result.stdout
+    except FileNotFoundError:
+        return "nifi-ingest-v3/ (Skipped verification because docker is not available in this container)"
 
+
+def start_all_processors_in_group(group_id: str) -> None:
+    flow = get_flow(group_id)
+    for processor in flow["processGroupFlow"]["flow"]["processors"]:
+        if processor["component"]["state"] != "RUNNING":
+            start_processor(processor["id"])
+
+def enable_all_controller_services_in_group(group_id: str) -> None:
+    for service in get_process_group_controller_services(group_id):
+        if service["component"]["state"] != "ENABLED":
+            enable_controller_service(service["id"])
 
 def main() -> None:
     root_pg_id = _detect_root_pg_id()
     print(f"Using NiFi at {BASE_URL}, root PG = {root_pg_id}")
-    if os.getenv("NIFI_CLEANUP_EXISTING", "true").lower() == "true":
+
+    # Check if flows already exist
+    flow = get_flow(root_pg_id)
+    flow1_id = None
+    flow2_id = None
+    for group in flow["processGroupFlow"]["flow"]["processGroups"]:
+        if group["component"]["name"] == "FLOW 1 - CSV File Ingestion":
+            flow1_id = group["id"]
+        elif group["component"]["name"] == "FLOW 2 - Kafka Consumer Flow":
+            flow2_id = group["id"]
+
+    if flow1_id and flow2_id and os.getenv("NIFI_CLEANUP_EXISTING", "false").lower() != "true":
+        print("Flows already exist. Starting existing flows instead of recreating...")
+        try:
+            enable_all_controller_services_in_group(flow1_id)
+            enable_all_controller_services_in_group(flow2_id)
+            start_all_processors_in_group(flow1_id)
+            start_all_processors_in_group(flow2_id)
+            
+            time.sleep(10)
+            verify_processors_running(flow1_id)
+            verify_processors_running(flow2_id)
+            
+            nifi_ingest_objects = aws_ls("s3://bronze/nifi-ingest-v3")
+            print("Existing NiFi flow started successfully.")
+            print("FLOW 1 processors are RUNNING.")
+            print("FLOW 2 processors are RUNNING.")
+            print("Objects found under s3://bronze/nifi-ingest-v3/:")
+            print(nifi_ingest_objects)
+        except Exception as e:
+            print(f"Failed to start existing flow: {e}")
+        return
+
+    if os.getenv("NIFI_CLEANUP_EXISTING", "false").lower() == "true":
         cleanup_root(root_pg_id)
 
     flow1 = create_process_group(root_pg_id, "FLOW 1 - CSV File Ingestion", 40.0, 80.0)

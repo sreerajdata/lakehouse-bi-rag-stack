@@ -20,9 +20,11 @@ TRINO_URL = f"trino://{TRINO_USER}@{TRINO_HOST}:{TRINO_PORT}/{TRINO_CATALOG}/{TR
 
 
 def ensure_context():
-    if not GX_DIR.exists():
+    try:
+        return gx.get_context(mode="file", project_root_dir=str(ROOT_DIR))
+    except Exception:
         FileDataContext.create(project_root_dir=str(ROOT_DIR))
-    return gx.get_context(context_root_dir=str(GX_DIR))
+        return gx.get_context(mode="file", project_root_dir=str(ROOT_DIR))
 
 
 def ensure_datasource(context):
@@ -30,6 +32,16 @@ def ensure_datasource(context):
         name="trino_sql",
         connection_string=TRINO_URL,
     )
+
+
+def reset_suite(context, suite_name: str):
+    try:
+        suite = context.suites.get(name=suite_name)
+        suite.expectations = []
+        return suite
+    except Exception:
+        suite = gx.ExpectationSuite(name=suite_name)
+        return context.suites.add(suite)
 
 
 def fetch_sample_rows(engine, sql: str):
@@ -72,15 +84,16 @@ def validate_asset(context, engine, datasource, suite_name: str, asset_name: str
         table_name=table_name,
         schema_name=TRINO_SCHEMA,
     )
+    batch_definition = asset.add_batch_definition_whole_table(
+        f"{asset_name}_batch_definition"
+    )
     batch_request = asset.build_batch_request()
-    try:
-        suite = context.suites.get(name=suite_name)
-    except Exception:
-        suite = context.suites.add(gx.ExpectationSuite(name=suite_name))
+    reset_suite(context, suite_name)
     validator = context.get_validator(
         batch_request=batch_request,
         expectation_suite_name=suite_name,
     )
+    validator.expectation_suite.expectations = []
 
     results = []
     for expectation in expectations:
@@ -91,17 +104,22 @@ def validate_asset(context, engine, datasource, suite_name: str, asset_name: str
         result = method(**kwargs)
         results.append({"type": expectation_type, "kwargs": kwargs, "group": group, "success": result.success})
 
-    validator.save_expectation_suite(discard_failed_expectations=False)
-    
+    try:
+        validator.save_expectation_suite(discard_failed_expectations=False)
+    except Exception:
+        pass
+
+    suite = context.suites.get(name=suite_name)
     validation_definition = gx.ValidationDefinition(
         name=f"{suite_name}_validation",
-        data_asset=asset,
-        expectation_suite=context.suites.get(suite_name)
+        data=batch_definition,
+        suite=suite
     )
     try:
-        context.validation_definitions.add(validation_definition)
+        context.validation_definitions.delete(name=f"{suite_name}_validation")
     except Exception:
-        context.validation_definitions.add_or_update(validation_definition)
+        pass
+    context.validation_definitions.add(validation_definition)
 
     checkpoint = gx.Checkpoint(
         name=suite_name,
@@ -109,9 +127,10 @@ def validate_asset(context, engine, datasource, suite_name: str, asset_name: str
         result_format={"result_format": "SUMMARY"}
     )
     try:
-        context.checkpoints.add(checkpoint)
+        context.checkpoints.delete(name=suite_name)
     except Exception:
-        checkpoint = context.checkpoints.add_or_update(checkpoint)
+        pass
+    checkpoint = context.checkpoints.add(checkpoint)
     
     checkpoint_result = checkpoint.run()
     context.build_data_docs()
@@ -144,6 +163,8 @@ def validate_asset(context, engine, datasource, suite_name: str, asset_name: str
 
 def main():
     context = ensure_context()
+    global GX_DIR
+    GX_DIR = Path(getattr(context, "root_directory", GX_DIR))
     datasource = ensure_datasource(context)
     engine = create_engine(TRINO_URL)
 
@@ -163,29 +184,24 @@ def main():
         {"group": "severity_score_range", "type": "expect_column_values_to_be_between", "kwargs": {"column": "severity_score", "min_value": 1, "max_value": 3}},
     ]
 
-    try:
-        mes_ok = validate_asset(
-            context=context,
-            engine=engine,
-            datasource=datasource,
-            suite_name="bronze_mes_events",
-            asset_name="silver_mes_events_asset",
-            table_name="silver_mes_events",
-            expectations=mes_expectations,
-        )
-        quality_ok = validate_asset(
-            context=context,
-            engine=engine,
-            datasource=datasource,
-            suite_name="silver_quality_events",
-            asset_name="silver_quality_events_asset",
-            table_name="silver_quality_events",
-            expectations=quality_expectations,
-        )
-    except Exception as e:
-        print(f"⚠️ Great Expectations failed with error: {e}")
-        print("Continuing pipeline without validation results.")
-        return
+    mes_ok = validate_asset(
+        context=context,
+        engine=engine,
+        datasource=datasource,
+        suite_name="bronze_mes_events",
+        asset_name="silver_mes_events_asset",
+        table_name="silver_mes_events",
+        expectations=mes_expectations,
+    )
+    quality_ok = validate_asset(
+        context=context,
+        engine=engine,
+        datasource=datasource,
+        suite_name="silver_quality_events",
+        asset_name="silver_quality_events_asset",
+        table_name="silver_quality_events",
+        expectations=quality_expectations,
+    )
 
     docs_index = GX_DIR / "uncommitted" / "data_docs" / "local_site" / "index.html"
     if docs_index.exists():

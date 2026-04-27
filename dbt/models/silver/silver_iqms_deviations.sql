@@ -60,5 +60,35 @@ cleaned as (
         'Enterprise-Data-Engineering' as _data_owner
     from bronze_source
     where deviation_id is not null
+),
+deduped as (
+    select
+        *,
+        row_number() over (partition by deviation_id order by _ingested_at desc) as rn
+    from cleaned
 )
-select * from cleaned
+select
+    deviation_id,
+    batch_number,
+    product_code,
+    defect_code,
+    severity,
+    description,
+    detected_by,
+    detected_at,
+    status,
+    root_cause,
+    severity_score,
+    days_to_close,
+    is_open,
+    _ingested_at,
+    _row_hash,
+    _kafka_offset,
+    _source_system,
+    _ingest_year,
+    _ingest_month,
+    _ingest_day,
+    _silver_loaded_at,
+    _data_owner
+from deduped
+where rn = 1

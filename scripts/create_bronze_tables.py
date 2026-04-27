@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -12,6 +13,14 @@ NIFI_INGEST_BASE = "s3a://bronze/nifi-ingest-v3"
 BRONZE_WAREHOUSE = "s3a://lakehouse-bronze/warehouse"
 ROOT_DIR = Path(__file__).resolve().parents[1]
 LOCAL_SOURCE_DIR = ROOT_DIR / "data" / "source"
+MANIFEST_PATH = ROOT_DIR / "data" / ".bronze_source_manifest.json"
+PRIMARY_SOURCE_FILES = [
+    "mes_events.csv",
+    "iqms_orders.csv",
+    "trackwise_deviations.csv",
+    "sap_ecc_orders.csv",
+    "sop_documents.csv",
+]
 METASTORE_DSN = {
     "host": "postgres",
     "dbname": "hive_metastore",
@@ -53,7 +62,43 @@ def cluster_for_partition(df, *columns: str):
     return df.repartition(*repartition_cols).sortWithinPartitions(*columns)
 
 
-def sync_local_source_files(spark: SparkSession) -> None:
+def build_source_manifest() -> dict[str, dict[str, int]]:
+    manifest: dict[str, dict[str, int]] = {}
+    for filename in PRIMARY_SOURCE_FILES:
+        path = LOCAL_SOURCE_DIR / filename
+        if not path.exists():
+            continue
+        stat = path.stat()
+        manifest[filename] = {
+            "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+        }
+    return manifest
+
+
+def load_previous_manifest() -> dict[str, dict[str, int]]:
+    if not MANIFEST_PATH.exists():
+        return {}
+    return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+
+
+def save_manifest(manifest: dict[str, dict[str, int]]) -> None:
+    MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    MANIFEST_PATH.write_text(json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def changed_source_files(
+    current_manifest: dict[str, dict[str, int]],
+    previous_manifest: dict[str, dict[str, int]],
+) -> list[str]:
+    return [
+        filename
+        for filename in PRIMARY_SOURCE_FILES
+        if current_manifest.get(filename) != previous_manifest.get(filename)
+    ]
+
+
+def sync_local_source_files(spark: SparkSession, filenames: list[str]) -> None:
     if not LOCAL_SOURCE_DIR.exists():
         return
 
@@ -64,7 +109,10 @@ def sync_local_source_files(spark: SparkSession) -> None:
     remote_base = jvm.org.apache.hadoop.fs.Path(BRONZE_SOURCE_BASE)
     remote_fs.mkdirs(remote_base)
 
-    for csv_path in sorted(LOCAL_SOURCE_DIR.glob("*.csv")):
+    for filename in filenames:
+        csv_path = LOCAL_SOURCE_DIR / filename
+        if not csv_path.exists():
+            continue
         local_path = jvm.org.apache.hadoop.fs.Path(str(csv_path))
         remote_path = jvm.org.apache.hadoop.fs.Path(f"{BRONZE_SOURCE_BASE}/{csv_path.name}")
         jvm.org.apache.hadoop.fs.FileUtil.copy(local_fs, local_path, remote_fs, remote_path, False, True, hadoop_conf)
@@ -217,14 +265,10 @@ def purge_metastore_table(schema_name: str, table_name: str) -> int:
             return len(tbl_ids)
 
 
-def recreate_placeholder_table(spark: SparkSession, table_name: str, ddl_body: str, location: str) -> None:
-    schema_name, short_name = table_name.split(".", 2)[1:]
-    removed = purge_metastore_table(schema_name, short_name)
-    if removed:
-        print(f"Purged {removed} stale metastore registration(s) for {table_name}")
+def create_placeholder_if_not_exists(spark: SparkSession, table_name: str, ddl_body: str, location: str) -> None:
     spark.sql(
         f"""
-        CREATE TABLE {table_name} (
+        CREATE TABLE IF NOT EXISTS {table_name} (
             {ddl_body}
         )
         USING iceberg
@@ -234,8 +278,15 @@ def recreate_placeholder_table(spark: SparkSession, table_name: str, ddl_body: s
 
 
 def main() -> None:
+    current_manifest = build_source_manifest()
+    previous_manifest = load_previous_manifest()
+    files_to_refresh = changed_source_files(current_manifest, previous_manifest)
+    if current_manifest and not files_to_refresh:
+        print("Primary Bronze source files unchanged; skipping Spark Bronze rebuild.")
+        return
+
     spark = build_spark()
-    sync_local_source_files(spark)
+    sync_local_source_files(spark, files_to_refresh)
     # Source CSVs are expected to be staged under s3a://bronze/source ahead of this job.
     spark.sql(
         f"""
@@ -244,142 +295,147 @@ def main() -> None:
         """
     )
 
-    mes_df = (
-        read_preferred_source(
-            spark,
-            "mes_events.csv",
-            [
-                "event_id",
-                "machine_id",
-                "batch_id",
-                "product_code",
-                "parameter_name",
-                F.col("parameter_value").cast("double").alias("parameter_value"),
-                "unit",
-                "operator_id",
-                "shift",
-                F.to_timestamp("event_ts").alias("event_ts"),
-                "status",
-            ],
-            "MES",
+    if "mes_events.csv" in files_to_refresh:
+        mes_df = (
+            read_preferred_source(
+                spark,
+                "mes_events.csv",
+                [
+                    "event_id",
+                    "machine_id",
+                    "batch_id",
+                    "product_code",
+                    "parameter_name",
+                    F.col("parameter_value").cast("double").alias("parameter_value"),
+                    "unit",
+                    "operator_id",
+                    "shift",
+                    F.to_timestamp("event_ts").alias("event_ts"),
+                    "status",
+                ],
+                "MES",
+            )
+            .transform(lambda df: deduplicate_rows(df, ["event_id"], "event_ts"))
+            .transform(lambda df: cluster_for_partition(df, "event_ts"))
         )
-        .transform(lambda df: deduplicate_rows(df, ["event_id"], "event_ts"))
-        .transform(lambda df: cluster_for_partition(df, "event_ts"))
-    )
-    write_table(
-        spark,
-        mes_df,
-        "lakehouse.bronze.mes_events",
-        f"{BRONZE_WAREHOUSE}/bronze.db/mes_events",
-        "days(event_ts)",
-    )
-
-    iqms_df = (
-        read_preferred_source(
+        write_table(
             spark,
-            "iqms_orders.csv",
-            [
-                "order_id",
-                "product_code",
-                "batch_id",
-                F.col("quantity").cast("int").alias("quantity"),
-                "uom",
-                F.to_timestamp("planned_start").alias("planned_start"),
-                F.to_timestamp("actual_start").alias("actual_start"),
-                F.to_timestamp("actual_end").alias("actual_end"),
-                "status",
-                "line_id",
-            ],
-            "IQMS",
+            mes_df,
+            "lakehouse.bronze.mes_events",
+            f"{BRONZE_WAREHOUSE}/bronze.db/mes_events",
+            "days(event_ts)",
         )
-        .transform(lambda df: deduplicate_rows(df, ["order_id"], "actual_start"))
-    )
-    write_table(spark, iqms_df, "lakehouse.bronze.iqms_orders", f"{BRONZE_WAREHOUSE}/bronze.db/iqms_orders")
 
-    trackwise_df = (
-        read_preferred_source(
+    if "iqms_orders.csv" in files_to_refresh:
+        iqms_df = (
+            read_preferred_source(
+                spark,
+                "iqms_orders.csv",
+                [
+                    "order_id",
+                    "product_code",
+                    "batch_id",
+                    F.col("quantity").cast("int").alias("quantity"),
+                    "uom",
+                    F.to_timestamp("planned_start").alias("planned_start"),
+                    F.to_timestamp("actual_start").alias("actual_start"),
+                    F.to_timestamp("actual_end").alias("actual_end"),
+                    "status",
+                    "line_id",
+                ],
+                "IQMS",
+            )
+            .transform(lambda df: deduplicate_rows(df, ["order_id"], "actual_start"))
+        )
+        write_table(spark, iqms_df, "lakehouse.bronze.iqms_orders", f"{BRONZE_WAREHOUSE}/bronze.db/iqms_orders")
+
+    if "trackwise_deviations.csv" in files_to_refresh:
+        trackwise_df = (
+            read_preferred_source(
+                spark,
+                "trackwise_deviations.csv",
+                [
+                    "deviation_id",
+                    "batch_id",
+                    "product_code",
+                    "deviation_type",
+                    "severity",
+                    "description",
+                    "reported_by",
+                    F.to_timestamp("reported_ts").alias("reported_ts"),
+                    "status",
+                    F.to_timestamp("resolution_ts").alias("resolution_ts"),
+                ],
+                "TrackWise",
+            )
+            .transform(lambda df: deduplicate_rows(df, ["deviation_id"], "reported_ts"))
+        )
+        write_table(
             spark,
-            "trackwise_deviations.csv",
-            [
-                "deviation_id",
-                "batch_id",
-                "product_code",
-                "deviation_type",
-                "severity",
-                "description",
-                "reported_by",
-                F.to_timestamp("reported_ts").alias("reported_ts"),
-                "status",
-                F.to_timestamp("resolution_ts").alias("resolution_ts"),
-            ],
-            "TrackWise",
+            trackwise_df,
+            "lakehouse.bronze.trackwise_deviations",
+            f"{BRONZE_WAREHOUSE}/bronze.db/trackwise_deviations",
         )
-        .transform(lambda df: deduplicate_rows(df, ["deviation_id"], "reported_ts"))
-    )
-    write_table(
-        spark,
-        trackwise_df,
-        "lakehouse.bronze.trackwise_deviations",
-        f"{BRONZE_WAREHOUSE}/bronze.db/trackwise_deviations",
-    )
 
-    sap_df = (
-        read_preferred_source(
+    if "sap_ecc_orders.csv" in files_to_refresh:
+        sap_df = (
+            read_preferred_source(
+                spark,
+                "sap_ecc_orders.csv",
+                [
+                    "po_number",
+                    "material_code",
+                    "plant",
+                    "storage_location",
+                    F.col("planned_qty").cast("int").alias("planned_qty"),
+                    F.col("actual_qty").cast("int").alias("actual_qty"),
+                    "uom",
+                    F.to_date("posting_date").alias("posting_date"),
+                    "cost_center",
+                    F.col("total_cost").cast("double").alias("total_cost"),
+                    "currency",
+                ],
+                "SAP ECC",
+            )
+            .transform(lambda df: deduplicate_rows(df, ["po_number"], "posting_date"))
+        )
+        write_table(
             spark,
-            "sap_ecc_orders.csv",
-            [
-                "po_number",
-                "material_code",
-                "plant",
-                "storage_location",
-                F.col("planned_qty").cast("int").alias("planned_qty"),
-                F.col("actual_qty").cast("int").alias("actual_qty"),
-                "uom",
-                F.to_date("posting_date").alias("posting_date"),
-                "cost_center",
-                F.col("total_cost").cast("double").alias("total_cost"),
-                "currency",
-            ],
-            "SAP ECC",
+            sap_df,
+            "lakehouse.bronze.sap_ecc_orders",
+            f"{BRONZE_WAREHOUSE}/bronze.db/sap_ecc_orders",
         )
-        .transform(lambda df: deduplicate_rows(df, ["po_number"], "posting_date"))
-    )
-    write_table(
-        spark,
-        sap_df,
-        "lakehouse.bronze.sap_ecc_orders",
-        f"{BRONZE_WAREHOUSE}/bronze.db/sap_ecc_orders",
-    )
 
-    sop_df = (
-        read_preferred_source(
+    if "sop_documents.csv" in files_to_refresh:
+        sop_df = (
+            read_preferred_source(
+                spark,
+                "sop_documents.csv",
+                [
+                    "doc_id",
+                    "doc_type",
+                    "title",
+                    "version",
+                    F.to_date("effective_date").alias("effective_date"),
+                    "author",
+                    "department",
+                    "file_path",
+                    F.col("page_count").cast("int").alias("page_count"),
+                ],
+                "Document Index",
+            )
+            .transform(lambda df: deduplicate_rows(df, ["doc_id"], "effective_date"))
+        )
+        write_table(
             spark,
-            "sop_documents.csv",
-            [
-                "doc_id",
-                "doc_type",
-                "title",
-                "version",
-                F.to_date("effective_date").alias("effective_date"),
-                "author",
-                "department",
-                "file_path",
-                F.col("page_count").cast("int").alias("page_count"),
-            ],
-            "Document Index",
+            sop_df,
+            "lakehouse.bronze.sop_documents",
+            f"{BRONZE_WAREHOUSE}/bronze.db/sop_documents",
         )
-        .transform(lambda df: deduplicate_rows(df, ["doc_id"], "effective_date"))
-    )
-    write_table(
-        spark,
-        sop_df,
-        "lakehouse.bronze.sop_documents",
-        f"{BRONZE_WAREHOUSE}/bronze.db/sop_documents",
-    )
 
-    # Create missing tables for dbt compatibility
-    # In a real scenario, these would be populated via Kafka or more CSVs.
-    recreate_placeholder_table(
+    # Create missing tables for dbt compatibility ONLY IF THEY DON'T EXIST
+    # Once kafka_to_bronze.py populates them, Airflow won't overwrite them.
+    create_placeholder_if_not_exists(
         spark,
         "lakehouse.bronze.tms_training_completions",
         """
@@ -390,7 +446,7 @@ def main() -> None:
         """,
         f"{BRONZE_WAREHOUSE}/bronze.db/tms_training_completions",
     )
-    recreate_placeholder_table(
+    create_placeholder_if_not_exists(
         spark,
         "lakehouse.bronze.trackwise_capas",
         """
@@ -399,7 +455,7 @@ def main() -> None:
         """,
         f"{BRONZE_WAREHOUSE}/bronze.db/trackwise_capas",
     )
-    recreate_placeholder_table(
+    create_placeholder_if_not_exists(
         spark,
         "lakehouse.bronze.mes_production_orders",
         """
@@ -408,7 +464,7 @@ def main() -> None:
         """,
         f"{BRONZE_WAREHOUSE}/bronze.db/mes_production_orders",
     )
-    recreate_placeholder_table(
+    create_placeholder_if_not_exists(
         spark,
         "lakehouse.bronze.iqms_quality_tests",
         """
@@ -417,7 +473,7 @@ def main() -> None:
         """,
         f"{BRONZE_WAREHOUSE}/bronze.db/iqms_quality_tests",
     )
-    recreate_placeholder_table(
+    create_placeholder_if_not_exists(
         spark,
         "lakehouse.bronze.iqms_deviations",
         """
@@ -435,6 +491,7 @@ def main() -> None:
     )
     verification.show(truncate=False)
     spark.stop()
+    save_manifest(current_manifest)
 
 
 if __name__ == "__main__":
