@@ -25,6 +25,7 @@ S3_ENDPOINT = os.getenv("SEAWEEDFS_ENDPOINT", "http://seaweedfs-s3:8333")
 S3_ACCESS_KEY = os.getenv("SEAWEEDFS_ACCESS_KEY", "admin")
 S3_SECRET_KEY = os.getenv("SEAWEEDFS_SECRET_KEY", "admin123")
 OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 MILVUS_HOST = os.getenv("MILVUS_HOST", "milvus")
 MILVUS_PORT = int(os.getenv("MILVUS_PORT", "19530"))
 DEFAULT_TIKA_URL = os.getenv("TIKA_URL", "http://tika:9998")
@@ -99,6 +100,15 @@ def extract_text_tika(content: bytes, tika_url: str, filename: str) -> str:
     return ""
 
 
+def extract_text_plain(content: bytes, filename: str) -> str:
+    """Extract text directly from plain-text document types."""
+    try:
+        return content.decode("utf-8", errors="ignore")
+    except Exception as e:
+        logger.warning(f"Plain-text extraction failed for {filename}: {e}")
+        return ""
+
+
 def chunk_text(text: str, chunk_size: int = 512, overlap: int = 50) -> List[str]:
     """Split text into overlapping chunks by approximate token count."""
     words = text.split()
@@ -138,7 +148,7 @@ def index_documents(
         return
 
     # Initialize embeddings
-    embeddings = OllamaEmbeddings(base_url=OLLAMA_URL, model="llama3")
+    embeddings = OllamaEmbeddings(base_url=OLLAMA_URL, model=EMBEDDING_MODEL)
 
     all_texts = []
     all_metadata = []
@@ -154,7 +164,8 @@ def index_documents(
             content = response["Body"].read()
 
             # Extract text
-            if filename.lower().endswith(".pdf"):
+            lower_name = filename.lower()
+            if lower_name.endswith(".pdf"):
                 text = extract_text_pdf(content)
                 extraction_method = "pymupdf"
                 # Fall back to Tika if minimal text extracted (likely scanned PDF)
@@ -162,6 +173,9 @@ def index_documents(
                     logger.info(f"  Minimal text from PyMuPDF, trying Tika for {filename}")
                     text = extract_text_tika(content, tika_url, filename)
                     extraction_method = "tika_ocr"
+            elif lower_name.endswith((".txt", ".md", ".csv", ".json", ".yml", ".yaml", ".log")):
+                text = extract_text_plain(content, filename)
+                extraction_method = "plain_text"
             else:
                 text = extract_text_tika(content, tika_url, filename)
                 extraction_method = "tika"

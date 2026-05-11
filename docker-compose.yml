@@ -121,7 +121,7 @@ services:
   seaweedfs-master:
     image: chrislusf/seaweedfs:3.63
     container_name: lakehouse_seaweedfs_master
-    profiles: ["core", "all"]
+    profiles: ["core", "ai", "all"]
     restart: unless-stopped
     command: "master -ip=seaweedfs-master -ip.bind=0.0.0.0 -port=9333 -mdir=/data"
     volumes:
@@ -141,7 +141,7 @@ services:
   seaweedfs-volume:
     image: chrislusf/seaweedfs:3.63
     container_name: lakehouse_seaweedfs_volume
-    profiles: ["core", "all"]
+    profiles: ["core", "ai", "all"]
     restart: unless-stopped
     command: "volume -ip.bind=0.0.0.0 -ip=seaweedfs-volume -mserver=seaweedfs-master:9333 -port=8082 -dir=/data -max=100"
     volumes:
@@ -163,7 +163,7 @@ services:
   seaweedfs-filer:
     image: chrislusf/seaweedfs:3.63
     container_name: lakehouse_seaweedfs_filer
-    profiles: ["core", "all"]
+    profiles: ["core", "ai", "all"]
     restart: unless-stopped
     command: "filer -ip.bind=0.0.0.0 -ip=seaweedfs-filer -master=seaweedfs-master:9333 -port=8888"
     volumes:
@@ -187,7 +187,7 @@ services:
       context: ./dockerfiles/seaweedfs-ui-proxy
       dockerfile: Dockerfile
     container_name: lakehouse_seaweedfs_ui_proxy
-    profiles: ["core", "all"]
+    profiles: ["core", "ai", "all"]
     restart: unless-stopped
     environment:
       FILER_BASE: http://seaweedfs-filer:8888
@@ -219,7 +219,7 @@ services:
   seaweedfs-s3:
     image: chrislusf/seaweedfs:3.63
     container_name: lakehouse_seaweedfs_s3
-    profiles: ["core", "all"]
+    profiles: ["core", "ai", "all"]
     restart: unless-stopped
     command: "s3 -ip.bind=0.0.0.0 -filer=seaweedfs-filer:8888 -port=8333 -config=/etc/seaweedfs/s3.json"
     volumes:
@@ -242,7 +242,7 @@ services:
   seaweedfs-init:
     image: amazon/aws-cli:2.15.0
     container_name: lakehouse_seaweedfs_init
-    profiles: ["core", "all"]
+    profiles: ["core", "ai", "all"]
     environment:
       AWS_ACCESS_KEY_ID: ${SEAWEEDFS_ACCESS_KEY:-admin}
       AWS_SECRET_ACCESS_KEY: ${SEAWEEDFS_SECRET_KEY:-admin123}
@@ -745,7 +745,7 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     entrypoint: /bin/sh
-    command: -c "sleep 10 && ollama pull llama3"
+    command: -c "sleep 10 && ollama pull llama3 && ollama pull nomic-embed-text"
     depends_on:
       ollama:
         condition: service_healthy
@@ -810,6 +810,23 @@ services:
         aliases:
           - milvus
 
+  attu:
+    image: zilliz/attu:v2.4
+    container_name: lakehouse_milvus_ui
+    profiles: ["ai", "all"]
+    restart: unless-stopped
+    environment:
+      MILVUS_URL: milvus:19530
+    ports:
+      - "8000:3000"
+    depends_on:
+      milvus:
+        condition: service_healthy
+    networks:
+      lakehouse_net:
+        aliases:
+          - attu
+
   # LangChain RAG + Streamlit Chat UI
   langchain-app:
     build:
@@ -819,12 +836,24 @@ services:
     profiles: ["ai", "all"]
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
+      CHAT_MODEL: llama3
+      EMBEDDING_MODEL: nomic-embed-text
       MILVUS_HOST: milvus
       MILVUS_PORT: 19530
+      MILVUS_COLLECTION: enterprise_documents
       TRINO_HOST: trino
       TRINO_PORT: 8080
+      DOCS_BUCKET: lakehouse-docs
+      SEAWEEDFS_ENDPOINT: http://seaweedfs-s3:8333
+      SEAWEEDFS_ACCESS_KEY: ${SEAWEEDFS_ACCESS_KEY:-admin}
+      SEAWEEDFS_SECRET_KEY: ${SEAWEEDFS_SECRET_KEY:-admin123}
+      TIKA_URL: http://tika:9998
     ports:
       - "8501:8501"
+    volumes:
+      - ./README.md:/workspace/README.md:ro
+      - ./docs:/workspace/docs:ro
+      - ./data/source:/workspace/data/source:ro
     depends_on:
       - ollama
       - milvus
@@ -1026,6 +1055,7 @@ services:
       KAFKA_BOOTSTRAP_SERVER: kafka:9092
       KAFKA_SCHEMAREGISTRY_URL: http://schema-registry:8081
       NEO4J_HOST: "http://datahub-neo4j:7474"
+      SYSTEM_UPDATE_WAIT_FOR_SYSTEM_UPDATE: "false"
     ports:
       - "8880:8080"
     depends_on:

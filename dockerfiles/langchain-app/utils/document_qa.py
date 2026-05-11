@@ -15,6 +15,7 @@ logger = logging.getLogger("document-qa")
 
 # Configuration
 OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 MILVUS_HOST = os.getenv("MILVUS_HOST", "milvus")
 MILVUS_PORT = int(os.getenv("MILVUS_PORT", "19530"))
 
@@ -59,7 +60,7 @@ def answer_question(
 
     # Initialize components
     llm = Ollama(base_url=OLLAMA_URL, model="llama3", temperature=0.1)
-    embeddings = OllamaEmbeddings(base_url=OLLAMA_URL, model="llama3")
+    embeddings = OllamaEmbeddings(base_url=OLLAMA_URL, model=EMBEDDING_MODEL)
 
     # Connect to Milvus
     try:

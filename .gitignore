@@ -2,6 +2,9 @@
 *.jar
 *.tar
 *.tar.gz
+*.zip
+*.war
+.tmp-datahub*
 airgap-images/
 data/
 **/data/
@@ -53,3 +56,6 @@ gx/uncommitted/
 
 # Temporary files
 trino_threads.txt
+build_demo_tool_summary.*
+node_modules/
+outputs/

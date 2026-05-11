@@ -8,7 +8,7 @@ AWS_SECRET_ACCESS_KEY="${SEAWEEDFS_SECRET_KEY:-admin123}"
 
 create_connector() {
   local name="$1"
-  local topic="$2"
+  local topics="$2"
   local topics_dir="$3"
 
   local config_payload
@@ -16,13 +16,14 @@ create_connector() {
 {
     "connector.class": "io.confluent.connect.s3.S3SinkConnector",
     "tasks.max": "1",
-    "topics": "${topic}",
+    "topics": "${topics}",
     "s3.bucket.name": "bronze",
     "s3.region": "us-east-1",
     "store.url": "http://seaweedfs-s3:8333",
     "s3.part.size": "5242880",
-    "flush.size": "100",
-    "rotate.schedule.interval.ms": "60000",
+    "flush.size": "1",
+    "rotate.interval.ms": "30000",
+    "rotate.schedule.interval.ms": "30000",
     "timezone": "UTC",
     "storage.class": "io.confluent.connect.s3.storage.S3Storage",
     "format.class": "io.confluent.connect.s3.format.json.JsonFormat",
@@ -64,11 +65,10 @@ JSON
   printf '\n'
 }
 
-create_connector "s3_sink_raw_mes_events" "raw.mes.events" "mes"
-create_connector "s3_sink_raw_iqms_orders" "raw.iqms.orders" "iqms"
-create_connector "s3_sink_raw_trackwise_deviations" "raw.trackwise.deviations" "trackwise"
-create_connector "s3_sink_raw_sap_orders" "raw.sap.orders" "sap"
-create_connector "s3_sink_raw_sop_documents" "raw.sop.documents" "sop"
+create_connector \
+  "s3_sink_kafka_demo_events" \
+  "mes.production_orders,mes.machine_status,mes.oee_metrics,iqms.quality_tests,iqms.deviations,historian.process_parameters,trackwise.capas,trackwise.complaints,sap.inventory_movements,sap.purchase_orders,tms.training_completions" \
+  "kafka-demo"
 
 echo "Connector statuses:"
 curl -sS "${CONNECT_URL}/connectors?expand=status"
