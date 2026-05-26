@@ -2,7 +2,7 @@
 <?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
 <configuration>
 
-  <!-- PostgreSQL Metastore Backend -->
+
   <property>
     <name>javax.jdo.option.ConnectionDriverName</name>
     <value>org.postgresql.Driver</value>
@@ -20,19 +20,19 @@
     <value>admin123</value>
   </property>
 
-  <!-- Metastore Thrift Server -->
+
   <property>
     <name>hive.metastore.uris</name>
     <value>thrift://hive-metastore:9083</value>
   </property>
 
-  <!-- SeaweedFS as S3-Compatible Warehouse -->
+
   <property>
     <name>hive.metastore.warehouse.dir</name>
     <value>s3a://lakehouse-models/warehouse</value>
   </property>
 
-  <!-- S3A Filesystem (SeaweedFS) -->
+
   <property>
     <name>fs.s3a.endpoint</name>
     <value>http://seaweedfs-s3:8333</value>
@@ -58,23 +58,18 @@
     <value>false</value>
   </property>
 
-  <!-- Schema verification -->
+
   <property>
     <name>hive.metastore.schema.verification</name>
     <value>false</value>
   </property>
 
-  <!-- Auto-create schema -->
+
   <property>
     <name>datanucleus.schema.autoCreateAll</name>
     <value>false</value>
   </property>
 
-  <!-- Iceberg catalog integration (disabled due to missing jar)
-  <property>
-    <name>hive.metastore.event.listeners</name>
-    <value>org.apache.iceberg.hive.HiveIcebergMetastoreListener</value>
-  </property>
-  -->
+
 
 </configuration>

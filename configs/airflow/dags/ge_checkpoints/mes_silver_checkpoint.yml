@@ -1,4 +1,3 @@
-# MES Silver Layer Checkpoint — Production Order Quality Gate
 name: mes_silver_checkpoint
 config_version: 1.0
 class_name: Checkpoint
@@ -22,7 +21,6 @@ validations:
 
 expectation_suite_name: mes_silver_suite
 expectations:
-  # yield_pct must be between 0 and 120 (allowing slight over-yield)
   - expectation_type: expect_column_values_to_be_between
     kwargs:
       column: yield_pct
@@ -30,29 +28,24 @@ expectations:
       max_value: 120
       mostly: 0.99
 
-  # order_id must never be null
   - expectation_type: expect_column_values_to_not_be_null
     kwargs:
       column: order_id
 
-  # product_code must never be null
   - expectation_type: expect_column_values_to_not_be_null
     kwargs:
       column: product_code
 
-  # status must be in allowed list
   - expectation_type: expect_column_values_to_be_in_set
     kwargs:
       column: status
       value_set: ["COMPLETED", "IN_PROGRESS", "ON_HOLD"]
 
-  # planned_qty must be positive
   - expectation_type: expect_column_values_to_be_between
     kwargs:
       column: planned_qty
       min_value: 1
 
-  # _row_hash must never be null (ALCOA+ integrity)
   - expectation_type: expect_column_values_to_not_be_null
     kwargs:
       column: _row_hash

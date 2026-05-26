@@ -1,7 +1,3 @@
-# ============================================================
-# DataHub Metadata Ingestion — Apache Airflow Source
-# Captures DAG runs, task lineage, and execution metadata
-# ============================================================
 
 source:
   type: airflow
@@ -14,13 +10,11 @@ source:
       login: "admin"
       password: "admin123"
       schema: "airflow"
-    # Map Airflow task instances to DataHub datasets
     dag_pattern:
       allow:
         - "medallion_pipeline"
         - "pdf_processing_pipeline"
         - "iceberg_maintenance"
-    # Emit lineage edges between tasks and datasets
     platform_instance_map:
       trino: "tpl-lakehouse-trino"
       postgres: "tpl-lakehouse-postgres"

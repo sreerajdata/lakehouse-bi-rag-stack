@@ -15,7 +15,6 @@ import traceback
 from datetime import datetime
 from typing import Tuple
 
-# Configuration
 SEAWEEDFS_S3_URL = os.getenv("SEAWEEDFS_ENDPOINT", "http://localhost:8333")
 SEAWEEDFS_KEY    = os.getenv("SEAWEEDFS_ACCESS_KEY", "admin")
 SEAWEEDFS_SECRET = os.getenv("SEAWEEDFS_SECRET_KEY", "admin123")
@@ -34,7 +33,7 @@ class TestResult:
     """Holds result of a single test."""
     def __init__(self, name: str, status: str, message: str, duration: float):
         self.name = name
-        self.status = status  # "PASS", "FAIL", "SKIP"
+        self.status = status
         self.message = message
         self.duration = duration
 
@@ -59,7 +58,6 @@ def run_test(name: str, fn) -> TestResult:
         return TestResult(name, "FAIL", f"Exception: {str(e)}", duration)
 
 
-# Test Functions
 
 def test_seaweedfs() -> Tuple[bool, str]:
     """Test SeaweedFS S3 connectivity and bucket operations."""
@@ -69,7 +67,6 @@ def test_seaweedfs() -> Tuple[bool, str]:
         aws_access_key_id=SEAWEEDFS_KEY,
         aws_secret_access_key=SEAWEEDFS_SECRET,
     )
-    # List buckets
     buckets = s3.list_buckets()
     bucket_names = [b["Name"] for b in buckets["Buckets"]]
     expected = ["lakehouse-bronze", "lakehouse-silver", "lakehouse-gold"]
@@ -77,7 +74,6 @@ def test_seaweedfs() -> Tuple[bool, str]:
     if missing:
         return False, f"Missing buckets: {missing}. Found: {bucket_names}"
 
-    # Write/read test
     test_key = "_integration_test/test.json"
     test_data = json.dumps({"test": True, "ts": datetime.utcnow().isoformat()})
     s3.put_object(Bucket="lakehouse-bronze", Key=test_key, Body=test_data)
@@ -117,7 +113,6 @@ def test_trino_connectivity() -> Tuple[bool, str]:
 def test_trino_iceberg() -> Tuple[bool, str]:
     """Test Trino Iceberg catalog — list schemas."""
     import httpx
-    # POST a query to list schemas
     headers = {"X-Trino-User": "admin", "X-Trino-Catalog": "iceberg"}
     response = httpx.post(
         f"http://{TRINO_HOST}:{TRINO_PORT}/v1/statement",
@@ -171,14 +166,12 @@ def test_milvus() -> Tuple[bool, str]:
     """Test Milvus vector store connectivity."""
     import httpx
     response = httpx.get(f"http://{MILVUS_HOST}:{MILVUS_PORT - 10439}/healthz", timeout=10.0)
-    # Milvus health endpoint is on port 9091
     try:
         response = httpx.get(f"http://{MILVUS_HOST}:9091/healthz", timeout=10.0)
         if response.status_code == 200:
             return True, "Milvus is healthy"
     except Exception:
         pass
-    # Fallback: try to connect via pymilvus
     try:
         from pymilvus import connections
         connections.connect(host=MILVUS_HOST, port=str(MILVUS_PORT))
@@ -215,7 +208,6 @@ def test_prometheus() -> Tuple[bool, str]:
     return True, f"{len(up_targets)}/{len(targets)} targets UP"
 
 
-# Main Test Runner
 
 def main():
     print("╔══════════════════════════════════════════════════════════╗")
@@ -245,7 +237,6 @@ def main():
         print(f"  {icon} {result.name:30s} [{result.duration*1000:7.1f}ms] {result.message}")
         results.append(result)
 
-    # Summary
     passed = sum(1 for r in results if r.status == "PASS")
     failed = sum(1 for r in results if r.status == "FAIL")
     total = len(results)
@@ -256,7 +247,6 @@ def main():
     print(f"  Total Duration: {sum(r.duration for r in results)*1000:.0f}ms")
     print(f"{'='*60}")
 
-    # Write JUnit XML
     junit_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_results.xml")
     with open(junit_path, "w") as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
@@ -270,7 +260,6 @@ def main():
         f.write('</testsuite>\n')
     print(f"\n  📄 JUnit XML: {junit_path}")
 
-    # Write JSON results
     json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_results.json")
     with open(json_path, "w") as f:
         json.dump({

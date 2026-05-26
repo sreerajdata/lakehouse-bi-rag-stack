@@ -45,12 +45,10 @@ def extract_lineage(manifest: Dict[str, Any]) -> List[Dict[str, Any]]:
         if node.get("resource_type") not in ("model", "snapshot"):
             continue
 
-        # Build downstream dataset URN
         schema = node.get("schema", "default")
         name = node.get("name", node_id.split(".")[-1])
         downstream_urn = make_dataset_urn(schema, name)
 
-        # Collect upstream dependencies
         upstreams = []
         for dep_id in node.get("depends_on", {}).get("nodes", []):
             dep_node = nodes.get(dep_id) or manifest.get("sources", {}).get(dep_id)
@@ -59,7 +57,6 @@ def extract_lineage(manifest: Dict[str, Any]) -> List[Dict[str, Any]]:
                 dep_name = dep_node.get("name", dep_id.split(".")[-1])
                 upstreams.append(make_dataset_urn(dep_schema, dep_name))
             else:
-                # Try parsing from source references
                 parts = dep_id.split(".")
                 if len(parts) >= 3:
                     upstreams.append(make_dataset_urn(parts[-2], parts[-1]))
@@ -98,7 +95,6 @@ def emit_lineage(lineage_edges: List[Dict[str, Any]], dry_run: bool = False):
             success += 1
             continue
 
-        # Build DataHub lineage payload
         payload = {
             "proposal": {
                 "entityType": "dataset",

@@ -23,7 +23,6 @@ from pymilvus import Collection, connections, utility
 
 from utils.index_documents import index_documents
 
-# Config
 OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 CHAT_MODEL = os.getenv("CHAT_MODEL", "llama3")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")

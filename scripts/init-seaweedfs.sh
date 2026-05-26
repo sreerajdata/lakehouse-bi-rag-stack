@@ -1,7 +1,4 @@
 #!/bin/sh
-# ============================================================
-# SeaweedFS Bucket Initialization
-# ============================================================
 set -e
 
 ENDPOINT="http://seaweedfs-s3:8333"
@@ -23,7 +20,6 @@ for BUCKET in $BUCKETS; do
   fi
 done
 
-# Create directory structure in medallion buckets
 for SYSTEM in mes iqms historian trackwise sap tms nifi_flows docs; do
   aws --endpoint-url=$ENDPOINT s3api put-object --bucket bronze --key "${SYSTEM}/" > /dev/null 2>&1 || true
   aws --endpoint-url=$ENDPOINT s3api put-object --bucket lakehouse-bronze --key "${SYSTEM}/" > /dev/null 2>&1 || true

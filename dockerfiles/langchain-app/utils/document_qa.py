@@ -13,7 +13,6 @@ from typing import Dict, Any, Optional, List
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("document-qa")
 
-# Configuration
 OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nomic-embed-text")
 MILVUS_HOST = os.getenv("MILVUS_HOST", "milvus")
@@ -58,11 +57,9 @@ def answer_question(
     from langchain_community.embeddings import OllamaEmbeddings
     from langchain_community.vectorstores import Milvus
 
-    # Initialize components
     llm = Ollama(base_url=OLLAMA_URL, model="llama3", temperature=0.1)
     embeddings = OllamaEmbeddings(base_url=OLLAMA_URL, model=EMBEDDING_MODEL)
 
-    # Connect to Milvus
     try:
         vector_store = Milvus(
             embedding_function=embeddings,
@@ -77,13 +74,10 @@ def answer_question(
             "confidence": 0.0,
         }
 
-    # Build search kwargs
     search_kwargs = {"k": top_k}
 
-    # Retrieve relevant chunks
     try:
         if source_filter:
-            # Filter by source document filename
             docs = vector_store.similarity_search(
                 question,
                 k=top_k,
@@ -106,7 +100,6 @@ def answer_question(
             "confidence": 0.0,
         }
 
-    # Build context from retrieved chunks
     context_parts = []
     sources = set()
     for doc in docs:
@@ -116,7 +109,6 @@ def answer_question(
 
     context = "\n\n---\n\n".join(context_parts)
 
-    # Generate answer via LLM
     prompt = QA_PROMPT_TEMPLATE.format(context=context, question=question)
 
     try:
@@ -129,11 +121,9 @@ def answer_question(
             "confidence": 0.0,
         }
 
-    # Parse structured response
     answer = response
-    confidence = 0.5  # default
+    confidence = 0.5
 
-    # Try to extract structured fields
     if "ANSWER:" in response:
         try:
             answer_part = response.split("ANSWER:")[1]

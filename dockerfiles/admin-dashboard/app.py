@@ -10,7 +10,6 @@ from datetime import datetime
 import streamlit as st
 import requests
 
-# Configuration
 AIRFLOW_URL = os.getenv("AIRFLOW_BASE_URL", "http://airflow-webserver:8080")
 SEAWEEDFS_URL = os.getenv("SEAWEEDFS_ENDPOINT", "http://seaweedfs-s3:8333")
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
@@ -53,7 +52,6 @@ def get_airflow_dag_runs(dag_id: str, limit: int = 5):
 def get_seaweedfs_status():
     """Check SeaweedFS cluster status."""
     try:
-        # Master status
         resp = requests.get("http://seaweedfs-master:9333/cluster/status", timeout=5)
         if resp.status_code == 200:
             return resp.json()
@@ -87,7 +85,6 @@ def trigger_dag(dag_id: str):
         return False
 
 
-# Streamlit UI
 st.set_page_config(
     page_title="Lakehouse Admin",
     page_icon="🏭",
@@ -98,7 +95,6 @@ st.set_page_config(
 st.title("🏭 Data Lakehouse — Admin Console")
 st.caption(f"Last refreshed: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
-# Sidebar
 with st.sidebar:
     st.header("🔧 Quick Actions")
 
@@ -128,10 +124,8 @@ with st.sidebar:
     st.markdown(f"- [Trino UI](http://localhost:8180)")
     st.markdown(f"- [Spark UI](http://localhost:8181)")
 
-# Main Dashboard
 col1, col2, col3, col4 = st.columns(4)
 
-# Trino status
 trino_info = get_trino_info()
 with col1:
     if trino_info:
@@ -140,7 +134,6 @@ with col1:
     else:
         st.metric("Trino", "🔴 Down", None)
 
-# SeaweedFS status
 swfs = get_seaweedfs_status()
 with col2:
     if swfs:
@@ -149,13 +142,11 @@ with col2:
     else:
         st.metric("SeaweedFS", "🔴 Down", None)
 
-# Airflow DAG count
 dags = get_airflow_dags()
 with col3:
     active = len([d for d in dags if not d.get("is_paused")])
     st.metric("Airflow DAGs", f"{active} active", f"{len(dags)} total")
 
-# Kafka (connectivity check)
 with col4:
     try:
         from kafka import KafkaConsumer
@@ -167,7 +158,6 @@ with col4:
     except Exception:
         st.metric("Kafka", "🔴 Down", None)
 
-# Pipeline Status
 st.divider()
 st.header("📊 Pipeline Status")
 
@@ -195,12 +185,10 @@ if dags:
 else:
     st.info("Could not connect to Airflow")
 
-# Data Freshness
 st.divider()
 st.header("🕐 Data Freshness")
 st.info("Data freshness metrics require active Trino connection with populated tables.")
 
-# Footer
 st.divider()
 st.caption(
     "Data Lakehouse Admin Dashboard v1.0 | "

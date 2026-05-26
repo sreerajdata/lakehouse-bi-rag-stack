@@ -1,7 +1,3 @@
-# ============================================================
-# DataHub Metadata Ingestion — Trino / Iceberg Source
-# Scans bronze, silver, and gold schemas via Trino connector
-# ============================================================
 
 pipeline_name: "trino-iceberg-ingestion"
 

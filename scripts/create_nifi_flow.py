@@ -310,7 +310,6 @@ def main() -> None:
     root_pg_id = _detect_root_pg_id()
     print(f"Using NiFi at {BASE_URL}, root PG = {root_pg_id}")
 
-    # Check if flows already exist
     flow = get_flow(root_pg_id)
     flow1_id = None
     flow2_id = None

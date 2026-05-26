@@ -1,6 +1,3 @@
-# ============================================================
-# TPL Data Lakehouse - Stack Management Makefile
-# ============================================================
 
 .PHONY: help up-core up-ingestion up-processing up-lakehouse \
         up-analytics up-ai up-monitoring up-governance up-cicd \
@@ -59,7 +56,6 @@ help:
 	@echo "  SeaweedFS:   http://localhost:8333  (S3 endpoint)"
 	@echo ""
 
-# ── Start by profile ──────────────────────────────────────────────────────────
 up-core:
 	@echo "🚀 Starting core infrastructure (SeaweedFS + PostgreSQL)..."
 	$(COMPOSE) $(ENV_FILE) --profile core up -d
@@ -121,7 +117,6 @@ up-all:
 	@echo "✅ Full stack started. Services are initializing."
 	@echo "   Run 'make status' to see service health."
 
-# ── Management ────────────────────────────────────────────────────────────────
 down:
 	$(COMPOSE) $(ENV_FILE) --profile all down
 
@@ -138,7 +133,6 @@ logs:
 restart:
 	$(COMPOSE) $(ENV_FILE) --profile all restart $(svc)
 
-# ── Airgap Image Management ───────────────────────────────────────────────────
 IMAGES = \
   postgres:15 \
   chrislusf/seaweedfs:3.63 \
@@ -202,7 +196,6 @@ load-images:
 	done
 	@echo "✅ All images loaded."
 
-# ── Utilities ─────────────────────────────────────────────────────────────────
 init-buckets:
 	@$(COMPOSE) $(ENV_FILE) --profile core run --rm seaweedfs-init
 
@@ -237,7 +230,6 @@ health-check:
 	@curl -sf http://localhost:8501 && echo "✅ AI Chat" || echo "❌ AI Chat"
 	@curl -sf http://localhost:8502 && echo "✅ Admin Dashboard" || echo "❌ Admin Dashboard"
 
-# ── CDC & Data Quality ────────────────────────────────────────────────────────
 register-connectors:
 	@echo "📡 Registering Kafka Connect CDC connectors..."
 	@bash scripts/register_connectors.sh
@@ -248,7 +240,6 @@ dbt-compile:
 show-medallion-layout:
 	@bash scripts/show_medallion_storage_layout.sh
 
-# ── Integration Testing ──────────────────────────────────────────────────────
 integration-test:
 	@echo "🧪 Running integration tests..."
 	@python scripts/integration_test.py

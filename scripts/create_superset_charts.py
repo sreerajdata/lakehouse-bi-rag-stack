@@ -45,14 +45,11 @@ def main():
     token = login()
     csrf_token = get_csrf_token(token)
     
-    # Set main datetime columns for datasets to fix the "Datetime column not provided" error
-    update_dataset_time_column(token, csrf_token, 1, "hour_window")  # gold_oee_dashboard
-    update_dataset_time_column(token, csrf_token, 3, "report_date")   # gold_quality_kpis
+    update_dataset_time_column(token, csrf_token, 1, "hour_window")
+    update_dataset_time_column(token, csrf_token, 3, "report_date")
 
-    # Get Dashboard ID
     dashboard_id = 1
     
-    # 1. Big Number: Total Batches (dataset 3: gold_quality_kpis)
     create_chart(token, csrf_token, dashboard_id, 3, "Total Production Batches", "big_number", {
         "metric": {"expressionType": "SIMPLE", "column": {"column_name": "total_batches"}, "aggregate": "SUM", "label": "Total Batches"},
         "granularity_sqla": "report_date",
@@ -62,7 +59,6 @@ def main():
         "y_axis_format": "SMART_NUMBER"
     })
     
-    # 2. Bar Chart: Quality Rate by Product (dataset 1: gold_oee_dashboard)
     create_chart(token, csrf_token, dashboard_id, 1, "Quality Rate by Product", "echarts_timeseries_bar", {
         "groupby": ["product_code"],
         "metrics": [{"expressionType": "SIMPLE", "column": {"column_name": "quality_rate"}, "aggregate": "AVG", "label": "Avg Quality Rate"}],
@@ -71,7 +67,6 @@ def main():
         "y_axis_format": ".2f"
     })
     
-    # 3. Time Series Line: Temperature Trend (dataset 1: gold_oee_dashboard)
     create_chart(token, csrf_token, dashboard_id, 1, "Average Process Temperature Trend", "echarts_timeseries_line", {
         "metrics": [{"expressionType": "SIMPLE", "column": {"column_name": "avg_temp"}, "aggregate": "AVG", "label": "Avg Temp"}],
         "groupby": [],
@@ -81,7 +76,6 @@ def main():
         "show_value": True
     })
 
-    # 4. Pie Chart: Release Status (dataset 3: gold_quality_kpis)
     create_chart(token, csrf_token, dashboard_id, 3, "Batch Release Status Distribution", "pie", {
         "groupby": ["product_code"],
         "metric": {"expressionType": "SIMPLE", "column": {"column_name": "released_batches"}, "aggregate": "SUM", "label": "Released Batches"},
@@ -91,7 +85,6 @@ def main():
         "donut": True
     })
 
-    # 5. Table: Detailed Production Data (dataset 2: gold_batch_summary)
     create_chart(token, csrf_token, dashboard_id, 2, "Detailed Production Data Table", "table", {
         "groupby": ["batch_id", "product_code", "machine_id", "start_time", "end_time", "actual_qty", "yield_pct", "status"],
         "metrics": [],

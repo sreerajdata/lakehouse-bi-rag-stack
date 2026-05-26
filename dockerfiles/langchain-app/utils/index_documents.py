@@ -20,7 +20,6 @@ from botocore.config import Config as BotoConfig
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger("document-indexer")
 
-# Configuration
 S3_ENDPOINT = os.getenv("SEAWEEDFS_ENDPOINT", "http://seaweedfs-s3:8333")
 S3_ACCESS_KEY = os.getenv("SEAWEEDFS_ACCESS_KEY", "admin")
 S3_SECRET_KEY = os.getenv("SEAWEEDFS_SECRET_KEY", "admin123")
@@ -64,7 +63,7 @@ def list_documents(s3_client, bucket: str, prefix: str = "") -> List[Dict[str, A
 def extract_text_pdf(content: bytes) -> str:
     """Extract text from PDF using PyMuPDF (fitz)."""
     try:
-        import fitz  # PyMuPDF
+        import fitz
         doc = fitz.open(stream=content, filetype="pdf")
         text_parts = []
         for page_num, page in enumerate(doc):
@@ -147,7 +146,6 @@ def index_documents(
         logger.info("No documents found to index.")
         return
 
-    # Initialize embeddings
     embeddings = OllamaEmbeddings(base_url=OLLAMA_URL, model=EMBEDDING_MODEL)
 
     all_texts = []
@@ -159,16 +157,13 @@ def index_documents(
         logger.info(f"Processing: {filename} ({doc_info['size']} bytes)")
 
         try:
-            # Download from SeaweedFS
             response = s3.get_object(Bucket=bucket, Key=key)
             content = response["Body"].read()
 
-            # Extract text
             lower_name = filename.lower()
             if lower_name.endswith(".pdf"):
                 text = extract_text_pdf(content)
                 extraction_method = "pymupdf"
-                # Fall back to Tika if minimal text extracted (likely scanned PDF)
                 if len(text.strip()) < 100:
                     logger.info(f"  Minimal text from PyMuPDF, trying Tika for {filename}")
                     text = extract_text_tika(content, tika_url, filename)
@@ -184,7 +179,6 @@ def index_documents(
                 logger.warning(f"  No text extracted from {filename}, skipping.")
                 continue
 
-            # Chunk text
             chunks = chunk_text(text)
             logger.info(f"  Extracted {len(chunks)} chunks from {filename}")
 
@@ -210,7 +204,6 @@ def index_documents(
         logger.info("No text chunks to index.")
         return
 
-    # Upsert to Milvus
     logger.info(f"Upserting {len(all_texts)} chunks to Milvus collection '{collection}'...")
     try:
         Milvus.from_texts(

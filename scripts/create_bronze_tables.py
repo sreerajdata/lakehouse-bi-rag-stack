@@ -287,7 +287,6 @@ def main() -> None:
 
     spark = build_spark()
     sync_local_source_files(spark, files_to_refresh)
-    # Source CSVs are expected to be staged under s3a://bronze/source ahead of this job.
     spark.sql(
         f"""
         CREATE NAMESPACE IF NOT EXISTS lakehouse.bronze
@@ -433,8 +432,6 @@ def main() -> None:
             f"{BRONZE_WAREHOUSE}/bronze.db/sop_documents",
         )
 
-    # Create missing tables for dbt compatibility ONLY IF THEY DON'T EXIST
-    # Once kafka_to_bronze.py populates them, Airflow won't overwrite them.
     create_placeholder_if_not_exists(
         spark,
         "lakehouse.bronze.tms_training_completions",

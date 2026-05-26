@@ -1,10 +1,4 @@
 #!/bin/bash
-# ============================================================
-# Kafka Connect — Debezium Connector Registration Script
-# TPL Data Lakehouse
-# Usage: ./scripts/register_connectors.sh
-#        or: make register-connectors
-# ============================================================
 set -e
 set -u
 
@@ -19,7 +13,6 @@ echo "Connect URL: ${CONNECT_URL}"
 echo "Connector Dir: ${CONNECTOR_DIR}"
 echo ""
 
-# Wait for Kafka Connect to be available
 echo "⏳ Waiting for Kafka Connect to be ready..."
 MAX_RETRIES=30
 RETRY=0
@@ -35,7 +28,6 @@ done
 echo "✅ Kafka Connect is ready."
 echo ""
 
-# Register each connector
 TOTAL=0
 SUCCESS=0
 SKIPPED=0
@@ -54,7 +46,6 @@ for CONNECTOR_FILE in "${CONNECTOR_DIR}"/*.json; do
     echo "📋 Connector: ${CONNECTOR_NAME}"
     echo "   File: ${CONNECTOR_FILE}"
 
-    # Check if connector already exists
     HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${CONNECT_URL}/connectors/${CONNECTOR_NAME}")
 
     if [ "$HTTP_CODE" = "200" ]; then
@@ -94,7 +85,6 @@ echo "════════════════════════�
 echo "📊 Results: ${SUCCESS} success, ${FAILED} failed, ${SKIPPED} skipped (${TOTAL} total)"
 echo ""
 
-# List all active connectors
 echo "📡 Active Connectors:"
 curl -s "${CONNECT_URL}/connectors" | python3 -m json.tool 2>/dev/null || curl -s "${CONNECT_URL}/connectors"
 echo ""

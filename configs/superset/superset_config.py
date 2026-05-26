@@ -7,7 +7,6 @@ SQLALCHEMY_DATABASE_URI = os.getenv(
     "postgresql+psycopg2://admin:admin123@postgres:5432/superset"
 )
 
-# Trino / Iceberg connection via SQLAlchemy
 ADDITIONAL_DATABASES = {
     "trino_iceberg": {
         "sqlalchemy_uri": "trino://admin@trino:8080/iceberg",
@@ -24,6 +23,5 @@ FEATURE_FLAGS = {
     "DATAPANEL_CLOSED_BY_DEFAULT": False,
 }
 
-# Row-level security
 ENABLE_ROW_LEVEL_SECURITY = True
 ROW_LEVEL_SECURITY_FILTER_TYPE = "Regular"

@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# =============================================================================
-# ENTERPRISE DATA LAKEHOUSE — FULL MANUAL PIPELINE (No Airflow)
-# Runs every step in the exact order the Airflow DAG would execute them
-# =============================================================================
 
 set -euo pipefail
 
@@ -23,9 +19,7 @@ echo -e "${BOLD}║  ENTERPRISE DATA LAKEHOUSE — LIVE PIPELINE DEMO  ║${NC}"
 echo -e "${BOLD}╚══════════════════════════════════════════════════╝${NC}"
 echo -e "  Running: $(date '+%Y-%m-%d %H:%M:%S')\n"
 
-# ─────────────────────────────────────────────────────────────────────────────
 step "1/9" "DATA GENERATION — Create 25 fresh production orders"
-# ─────────────────────────────────────────────────────────────────────────────
 info "Generating 25 demo rows with live timestamps + uploading to SeaweedFS S3..."
 docker exec lakehouse_spark_master spark-submit \
   /opt/lakehouse/scripts/demo_ingest.py 2>&1 \
@@ -33,9 +27,7 @@ docker exec lakehouse_spark_master spark-submit \
 ok "Source data generated and uploaded to s3://bronze/source/"
 info "Browse live files at: http://localhost:8888/bronze/source/"
 
-# ─────────────────────────────────────────────────────────────────────────────
 step "2/9" "BRONZE VERIFICATION — Row counts across all Bronze tables"
-# ─────────────────────────────────────────────────────────────────────────────
 info "Querying Iceberg Bronze tables via Trino..."
 $TRINO --execute \
 "SELECT table_name, row_count FROM (
@@ -58,23 +50,17 @@ $TRINO --execute \
  ORDER BY _ingested_at DESC LIMIT 5" 2>/dev/null
 ok "Data confirmed in Bronze layer with live timestamps"
 
-# ─────────────────────────────────────────────────────────────────────────────
 step "3/9" "dbt SILVER RUN — Transform Bronze → Silver layer"
-# ─────────────────────────────────────────────────────────────────────────────
 info "Running dbt silver models (clean, standardise, deduplicate)..."
 $DBT "cd /opt/airflow/dbt && dbt run --select silver --profiles-dir /opt/airflow/dbt --project-dir /opt/airflow/dbt 2>&1 | tail -20"
 ok "Silver transformation complete"
 
-# ─────────────────────────────────────────────────────────────────────────────
 step "4/9" "dbt SILVER TEST — Validate data quality rules"
-# ─────────────────────────────────────────────────────────────────────────────
 info "Running dbt tests: unique, not_null, accepted_values..."
 $DBT "cd /opt/airflow/dbt && dbt test --select silver --profiles-dir /opt/airflow/dbt --project-dir /opt/airflow/dbt 2>&1 | grep -E '(PASS|FAIL|ERROR|error|Finished)'" || true
 ok "Silver data quality tests complete"
 
-# ─────────────────────────────────────────────────────────────────────────────
 step "5/9" "SILVER VERIFICATION — Confirm new demo rows in Silver"
-# ─────────────────────────────────────────────────────────────────────────────
 info "Querying Silver tables in Trino..."
 $TRINO --execute \
 "SELECT order_id, product_code, order_status, CAST(planned_start AS varchar) AS planned_start
@@ -83,31 +69,23 @@ $TRINO --execute \
  ORDER BY order_id DESC LIMIT 10" 2>/dev/null
 ok "Demo rows confirmed in Silver layer"
 
-# ─────────────────────────────────────────────────────────────────────────────
 step "6/9" "GREAT EXPECTATIONS — Statistical data quality validation"
-# ─────────────────────────────────────────────────────────────────────────────
 info "Running Great Expectations checkpoints on Silver tables..."
 $AIRFLOW_PY /opt/airflow/scripts/run_gx_validation.py 2>&1 \
   | grep -E "(✅|❌|Checkpoint|FAILED|passed|error)" || true
 ok "Great Expectations validation complete"
 
-# ─────────────────────────────────────────────────────────────────────────────
 step "7/9" "dbt GOLD RUN — Aggregate Silver → Gold analytics layer"
-# ─────────────────────────────────────────────────────────────────────────────
 info "Running dbt gold models (OEE, KPIs, compliance marts)..."
 $DBT "cd /opt/airflow/dbt && dbt run --select gold --profiles-dir /opt/airflow/dbt --project-dir /opt/airflow/dbt 2>&1 | tail -20"
 ok "Gold analytics layer refreshed"
 
-# ─────────────────────────────────────────────────────────────────────────────
 step "8/9" "dbt GOLD TEST — Validate Gold analytics quality"
-# ─────────────────────────────────────────────────────────────────────────────
 info "Running dbt tests on Gold datamarts..."
 $DBT "cd /opt/airflow/dbt && dbt test --select gold --profiles-dir /opt/airflow/dbt --project-dir /opt/airflow/dbt 2>&1 | grep -E '(PASS|FAIL|ERROR|Finished)'" || true
 ok "Gold data quality tests complete"
 
-# ─────────────────────────────────────────────────────────────────────────────
 step "9/9" "PIPELINE SUMMARY — Final row counts across all three layers"
-# ─────────────────────────────────────────────────────────────────────────────
 info "Querying final row counts across all medallion layers..."
 
 header "  📦  BRONZE LAYER:"

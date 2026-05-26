@@ -1,7 +1,3 @@
-# ============================================================
-# DataHub Metadata Ingestion ??? dbt Source
-# Scans dbt manifest and catalog for lineage and docs
-# ============================================================
 
 source:
   type: dbt

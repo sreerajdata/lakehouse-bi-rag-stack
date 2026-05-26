@@ -6,7 +6,6 @@ from pyspark.sql import SparkSession, functions as F
 KAFKA_SERVERS = "kafka:9092"
 ICEBERG_BASE = "s3a://lakehouse-bronze/warehouse"
 
-# Mapping datagen topics to Bronze tables
 TOPIC_TO_TABLE = {
     "mes.production_orders":  "lakehouse.bronze.mes_production_orders",
     "iqms.quality_tests":     "lakehouse.bronze.iqms_quality_tests",
@@ -35,7 +34,6 @@ def build_spark() -> SparkSession:
 def main() -> None:
     spark = build_spark()
     
-    # Enable Iceberg support for creating tables if they don't exist
     spark.sql(
         f"""
         CREATE NAMESPACE IF NOT EXISTS lakehouse.bronze
@@ -47,7 +45,6 @@ def main() -> None:
         print(f"\n>>> PROCESSING TOPIC: {topic} -> {table}")
         
         try:
-            # Read from Kafka (batch mode to ingest what's currently there)
             df = (
                 spark.read.format("kafka")
                 .option("kafka.bootstrap.servers", KAFKA_SERVERS)
@@ -63,7 +60,6 @@ def main() -> None:
 
             print(f"--- Found {df.count()} messages. Ingesting...")
 
-            # Transform to Bronze schema
             processed_df = (
                 df.select(
                     F.col("key").cast("string").alias("_kafka_key"),
@@ -78,13 +74,11 @@ def main() -> None:
                 .withColumn("_ingest_day", F.dayofmonth(F.col("_ingested_at")))
             )
 
-            # Match order of columns in placeholder table
             final_df = processed_df.select(
                 "_kafka_key", "_raw_payload", "_ingested_at", "_row_hash", 
                 "_kafka_offset", "_source_system", "_ingest_year", "_ingest_month", "_ingest_day"
             )
 
-            # Write to Iceberg
             final_df.writeTo(table).append()
             print(f"+++ Success: Ingested {topic} into {table}")
 

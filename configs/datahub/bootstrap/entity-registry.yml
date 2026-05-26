@@ -241,7 +241,7 @@ entities:
       - globalTags
       - glossaryTerms
       - institutionalMemory
-      - browsePaths # unclear if this will be used
+      - browsePaths
       - status
       - domains
       - browsePathsV2

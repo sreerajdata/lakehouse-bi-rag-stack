@@ -16,12 +16,10 @@ from langchain_community.llms import Ollama
 
 logger = logging.getLogger("trino-tool")
 
-# Configuration
 TRINO_HOST = os.getenv("TRINO_HOST", "trino")
 TRINO_PORT = int(os.getenv("TRINO_PORT", "8080"))
 OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://ollama:11434")
 
-# Gold layer tables available for querying
 GOLD_TABLES = {
     "gold_manufacturing_oee_mart": "OEE scores, availability, performance, quality rate per machine/shift/day",
     "gold_compliance_capa_mart": "CAPA closure rates, overdue CAPAs, compliance RAG status by department/month",
@@ -66,7 +64,6 @@ class TrinoQueryTool(BaseTool):
         forbidden = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE",
                       "TRUNCATE", "GRANT", "REVOKE", "MERGE"]
         for keyword in forbidden:
-            # Check for standalone keywords (not within strings or identifiers)
             if re.search(rf'\b{keyword}\b', sql_upper):
                 logger.warning(f"Blocked forbidden SQL keyword: {keyword}")
                 return False
@@ -86,7 +83,6 @@ class TrinoQueryTool(BaseTool):
         llm = Ollama(base_url=OLLAMA_URL, model="llama3", temperature=0.0)
         sql = llm.invoke(prompt).strip()
 
-        # Clean up LLM response artifacts
         sql = sql.replace("```sql", "").replace("```", "").strip()
         if sql.startswith("SQL:"):
             sql = sql[4:].strip()
@@ -108,11 +104,10 @@ class TrinoQueryTool(BaseTool):
                 if not rows:
                     return "No data found for this query."
 
-                # Format as readable table
                 header = " | ".join(columns)
                 separator = "-|-".join(["-" * len(col) for col in columns])
                 data_rows = []
-                for row in rows[:100]:  # Cap at 100 rows
+                for row in rows[:100]:
                     data_rows.append(" | ".join([str(val) for val in row]))
 
                 formatted = f"{header}\n{separator}\n" + "\n".join(data_rows)
@@ -124,15 +119,12 @@ class TrinoQueryTool(BaseTool):
     def _run(self, query: str) -> str:
         """Run the tool: NL → SQL → Execute → Format."""
         try:
-            # Generate SQL from natural language
             sql = self._generate_sql(query)
             logger.info(f"Generated SQL: {sql}")
 
-            # Validate safety
             if not self._validate_sql(sql):
                 return "⚠️ Generated query contains disallowed operations. Only SELECT queries are permitted."
 
-            # Execute and return results
             result = self._execute_sql(sql)
             return f"**SQL Executed:**\n```sql\n{sql}\n```\n\n**Results:**\n{result}"
 

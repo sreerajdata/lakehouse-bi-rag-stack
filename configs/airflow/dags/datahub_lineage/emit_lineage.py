@@ -27,10 +27,7 @@ PLATFORM = "trino"
 PLATFORM_INSTANCE = "enterprise-lakehouse"
 ENV = "PROD"
 
-# Medallion Lineage Edges
-# Defines the Bronze → Silver → Gold lineage graph
 LINEAGE_EDGES = [
-    # Silver ← Bronze
     {
         "downstream": "silver.silver_mes_production_orders",
         "upstreams": ["bronze.mes_production_orders"],
@@ -55,7 +52,6 @@ LINEAGE_EDGES = [
         "downstream": "silver.silver_tms_training",
         "upstreams": ["bronze.tms_training_completions"],
     },
-    # Gold ← Silver
     {
         "downstream": "gold.gold_manufacturing_oee_mart",
         "upstreams": [
@@ -166,7 +162,6 @@ def emit_lineage(gms_url: str, run_id: str):
 
     if failed > 0:
         logger.warning("Some lineage edges failed to emit — DataHub may not be running")
-        # Don't fail the DAG for lineage emission failures
     return failed == 0
 
 

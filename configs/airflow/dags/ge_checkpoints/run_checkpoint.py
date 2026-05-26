@@ -27,7 +27,6 @@ def run_checkpoint(checkpoint_name: str) -> bool:
     Returns:
         True if all expectations pass, False otherwise
     """
-    # Load checkpoint config
     checkpoint_dir = os.path.dirname(os.path.abspath(__file__))
     checkpoint_path = os.path.join(checkpoint_dir, f"{checkpoint_name}.yml")
 
@@ -43,7 +42,6 @@ def run_checkpoint(checkpoint_name: str) -> bool:
         print(f"WARNING: No expectations found in {checkpoint_name}")
         return True
 
-    # Connect to Trino via SQLAlchemy
     try:
         from sqlalchemy import create_engine, text
 
@@ -56,7 +54,6 @@ def run_checkpoint(checkpoint_name: str) -> bool:
         print(f"ERROR: Failed to connect to Trino: {e}")
         return False
 
-    # Determine table from checkpoint config
     validations = checkpoint_config.get("validations", [])
     if validations:
         data_asset = validations[0].get("batch_request", {}).get(
@@ -66,7 +63,6 @@ def run_checkpoint(checkpoint_name: str) -> bool:
     else:
         table_name = checkpoint_name.replace("_checkpoint", "")
 
-    # Run each expectation as a SQL validation
     results = {
         "checkpoint_name": checkpoint_name,
         "run_time": datetime.utcnow().isoformat(),
@@ -151,7 +147,6 @@ def run_checkpoint(checkpoint_name: str) -> bool:
                 results["success"] = False
             results["expectations"].append(exp_result)
 
-    # Print results
     status = "✅ PASSED" if results["success"] else "❌ FAILED"
     print(f"\n{'='*60}")
     print(f"Checkpoint: {checkpoint_name} — {status}")
@@ -162,7 +157,6 @@ def run_checkpoint(checkpoint_name: str) -> bool:
         icon = "✅" if exp["success"] else "❌"
         print(f"  {icon} {exp['type']} ({exp['column']}): {exp['details']}")
 
-    # Write results to SeaweedFS gold bucket
     try:
         import boto3
         s3 = boto3.client(

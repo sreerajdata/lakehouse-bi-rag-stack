@@ -18,5 +18,4 @@ fi
 echo "Creating /tmp/hive with open permissions..."
 mkdir -p /tmp/hive && chmod 777 /tmp/hive
 
-# Now start Hive Metastore normally
 exec /entrypoint.sh

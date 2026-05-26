@@ -12,7 +12,6 @@ from airflow.operators.python import PythonOperator
 from airflow.operators.bash import BashOperator
 from airflow.models import Variable
 
-# Configuration
 S3_ENDPOINT = os.getenv("SEAWEEDFS_ENDPOINT", "http://seaweedfs-s3:8333")
 S3_ACCESS_KEY = os.getenv("SEAWEEDFS_ACCESS_KEY", "admin")
 S3_SECRET_KEY = os.getenv("SEAWEEDFS_SECRET_KEY", "admin123")
@@ -99,11 +98,9 @@ def process_pdfs(**context):
         print(f"Processing: {filename}")
 
         try:
-            # Download from SeaweedFS
             response = s3.get_object(Bucket=SOURCE_BUCKET, Key=pdf_key)
             pdf_content = response["Body"].read()
 
-            # Extract text via Tika
             tika_response = httpx.put(
                 f"{TIKA_URL}/tika",
                 content=pdf_content,
@@ -118,7 +115,6 @@ def process_pdfs(**context):
                 extracted_text = tika_response.text
             else:
                 print(f"  Tika returned {tika_response.status_code}, trying OCR...")
-                # Tika with OCR fallback
                 tika_response = httpx.put(
                     f"{TIKA_URL}/tika",
                     content=pdf_content,
@@ -136,7 +132,6 @@ def process_pdfs(**context):
                 failed.append(pdf_key)
                 continue
 
-            # Store extraction result in bronze bucket
             result = {
                 "filename": filename,
                 "source_key": pdf_key,
@@ -156,7 +151,6 @@ def process_pdfs(**context):
                 ContentType="application/json",
             )
 
-            # Move processed file to processed folder
             s3.copy_object(
                 Bucket=SOURCE_BUCKET,
                 Key=f"{PROCESSED_PREFIX}{filename}",
@@ -171,7 +165,6 @@ def process_pdfs(**context):
             print(f"  ❌ Error processing {filename}: {e}")
             failed.append(pdf_key)
 
-            # Move to DLQ
             try:
                 s3.copy_object(
                     Bucket=SOURCE_BUCKET,
@@ -198,7 +191,6 @@ def trigger_milvus_indexer(**context):
     print(f"Triggering Milvus indexer for {processed_count} new documents...")
 
     try:
-        # Import and run the indexer
         import sys
         sys.path.insert(0, "/app/utils")
         from index_documents import index_documents
@@ -210,7 +202,6 @@ def trigger_milvus_indexer(**context):
         )
         print(f"✅ Successfully indexed {processed_count} documents into Milvus")
     except ImportError:
-        # Fallback: trigger via HTTP if the indexer module is not available
         import httpx
         try:
             response = httpx.post(
@@ -223,7 +214,6 @@ def trigger_milvus_indexer(**context):
             print(f"⚠️ Could not trigger indexer: {e}")
 
 
-# Task Definitions
 t_list_pdfs = PythonOperator(
     task_id="list_new_pdfs",
     python_callable=list_new_pdfs,
@@ -252,5 +242,4 @@ t_notify = BashOperator(
     dag=dag,
 )
 
-# DAG Dependencies
 t_list_pdfs >> t_process >> t_index >> t_notify

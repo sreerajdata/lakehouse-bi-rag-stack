@@ -14,14 +14,12 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-# ── Try importing Spark (only available inside the Spark container) ────────────
 try:
     from pyspark.sql import SparkSession, functions as F
     SPARK_AVAILABLE = True
 except ImportError:
     SPARK_AVAILABLE = False
 
-# ── Paths and constants ────────────────────────────────────────────────────────
 ROOT_DIR        = Path(__file__).resolve().parents[1]
 LOCAL_DATA_DIR  = ROOT_DIR / "data" / "source"
 BRONZE_S3       = "s3a://bronze/source"
@@ -30,11 +28,9 @@ DEMO_TABLE      = "lakehouse.bronze.demo_iqms_orders"
 DEMO_ROWS       = 25
 DBT_DIR         = "/opt/airflow/dbt"
 
-# Unique filename per run — so every execution creates a NEW visible file
 RUN_TS   = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 DEMO_FILE = f"iqms_orders_demo_{RUN_TS}.csv"
 
-# Synthetic data pools (matching the existing schema)
 PRODUCTS    = ["API-100", "API-200", "API-300", "API-400", "API-500"]
 STATUSES    = ["PLANNED", "IN_PROGRESS", "COMPLETE", "DELAYED"]
 LINES       = [f"LINE-{i}" for i in range(1, 9)]
@@ -68,9 +64,6 @@ def fail(msg: str) -> None:
     sys.exit(1)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# STEP 1 — Generate a new demo CSV file
-# ─────────────────────────────────────────────────────────────────────────────
 def generate_demo_csv() -> Path:
     step(1, f"Generating {DEMO_ROWS} fresh IQMS production orders")
     now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -97,7 +90,6 @@ def generate_demo_csv() -> Path:
     LOCAL_DATA_DIR.mkdir(parents=True, exist_ok=True)
     headers = list(rows[0].keys())
 
-    # ── 1a. Write a brand-new timestamped demo file (visible proof) ───────────
     demo_path = LOCAL_DATA_DIR / DEMO_FILE
     with demo_path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=headers)
@@ -105,11 +97,10 @@ def generate_demo_csv() -> Path:
         writer.writerows(rows)
     ok(f"NEW file created:  data/source/{DEMO_FILE}  ({len(rows)} rows)")
 
-    # ── 1b. Also APPEND rows to the main iqms_orders.csv (visual confirmation) ─
     main_csv = LOCAL_DATA_DIR / "iqms_orders.csv"
     with main_csv.open("a", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=headers)
-        writer.writerows(rows)   # no header — appending to existing file
+        writer.writerows(rows)
     ok(f"APPENDED to:       data/source/iqms_orders.csv  (+{len(rows)} rows)")
     info(f"iqms_orders.csv now has {sum(1 for _ in main_csv.open()) - 1} total rows (including header)")
 
@@ -123,9 +114,6 @@ def generate_demo_csv() -> Path:
     return demo_path
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# STEP 2 — Upload CSV to SeaweedFS (S3)
-# ─────────────────────────────────────────────────────────────────────────────
 def upload_to_s3(spark: "SparkSession", local_path: Path) -> None:
     step(2, f"Uploading CSV to Object Storage (SeaweedFS S3) → {BRONZE_S3}/{DEMO_FILE}")
     jvm        = spark._jvm
@@ -142,14 +130,10 @@ def upload_to_s3(spark: "SparkSession", local_path: Path) -> None:
     info("Browse at: http://localhost:8888/bronze/source/")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# STEP 3 — Ingest CSV into Bronze via Spark (demo table + main pipeline table)
-# ─────────────────────────────────────────────────────────────────────────────
 def ingest_to_bronze(spark: "SparkSession") -> int:
     step(3, f"Ingesting CSV into Bronze Iceberg (2 paths)")
     info(f"Reading from: {BRONZE_S3}/{DEMO_FILE}")
 
-    # Shared select expression matching the iqms_orders schema
     select_exprs = [
         "order_id",
         "product_code",
@@ -171,14 +155,12 @@ def ingest_to_bronze(spark: "SparkSession") -> int:
         .withColumn("_ingested_at", F.current_timestamp())
         .withColumn("_nifi_flow",   F.lit("csv_demo_ingest"))
     )
-    df.cache()  # cache so we don't re-read S3 twice
+    df.cache()
 
-    # Ensure namespace exists
     spark.sql(
         f"CREATE NAMESPACE IF NOT EXISTS lakehouse.bronze LOCATION '{BRONZE_WH}/bronze.db'"
     )
 
-    # ── PATH A: Create a dedicated demo table (visible in terminal) ────────────
     info("PATH A: Creating dedicated demo Bronze table (for visibility)")
     temp_view = "demo_iqms_orders_view"
     df.createOrReplaceTempView(temp_view)
@@ -195,7 +177,6 @@ def ingest_to_bronze(spark: "SparkSession") -> int:
     ok(f"Demo table created: {DEMO_TABLE}  ({demo_count} rows)")
     ok(f"Physical path: {demo_location}")
 
-    # Show a quick sample from the demo table
     print("\n  Live sample from Bronze — demo table:")
     spark.sql(
         f"""
@@ -204,16 +185,12 @@ def ingest_to_bronze(spark: "SparkSession") -> int:
         """
     ).show(truncate=False)
 
-    # ── PATH B: Append rows into the MAIN iqms_orders table ────────────────────
-    # Keep _source, _ingested_at, _nifi_flow — they ARE columns in the main table.
-    # Just drop the extra demo-only column if any.
     info("PATH B: Appending demo rows into main bronze.iqms_orders (feeds dbt Silver)")
     before_count = spark.sql(
         "SELECT COUNT(*) as c FROM lakehouse.bronze.iqms_orders"
     ).collect()[0]["c"]
     info(f"iqms_orders BEFORE append: {before_count:,} rows")
 
-    # df already has _source, _ingested_at, _nifi_flow — matches the production schema
     df.writeTo("lakehouse.bronze.iqms_orders").append()
 
     after_count = spark.sql(
@@ -225,9 +202,6 @@ def ingest_to_bronze(spark: "SparkSession") -> int:
     return demo_count
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# STEP 4 — Verify existing Bronze tables are intact
-# ─────────────────────────────────────────────────────────────────────────────
 def verify_existing_bronze(spark: "SparkSession") -> None:
     step(4, "Verifying all Bronze tables (pre-existing + new demo table)")
     tables = [
@@ -248,15 +222,11 @@ def verify_existing_bronze(spark: "SparkSession") -> None:
             print(f"  {label:<40} {'N/A':>8}")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# STEP 5 — Run dbt Silver transformation and compare counts
-# ─────────────────────────────────────────────────────────────────────────────
 def run_dbt_silver(spark: "SparkSession") -> None:
     step(5, "Running dbt Silver transformation (silver_production_orders)")
     info("Tool: dbt via Trino — reads from bronze.iqms_orders → writes to silver")
     info("The 25 demo rows appended in Step 3 (PATH B) will now appear in Silver")
 
-    # Capture Silver count BEFORE dbt runs
     silver_before = 0
     try:
         silver_before = spark.sql(
@@ -266,7 +236,6 @@ def run_dbt_silver(spark: "SparkSession") -> None:
     except Exception:
         info("Could not read Silver count before dbt (table may not exist yet)")
 
-    # Run dbt
     dbt_cmd = [
         "docker", "exec", "lakehouse_dbt",
         "dbt", "run",
@@ -289,7 +258,6 @@ def run_dbt_silver(spark: "SparkSession") -> None:
     except subprocess.TimeoutExpired:
         info("dbt timed out — run it manually: make dbt-run")
 
-    # Capture Silver count AFTER dbt runs
     try:
         silver_after = spark.sql(
             "SELECT COUNT(*) as c FROM iceberg.silver.silver_production_orders"
@@ -302,16 +270,12 @@ def run_dbt_silver(spark: "SparkSession") -> None:
         info("Verify manually: SELECT COUNT(*) FROM iceberg.silver.silver_production_orders;")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# MAIN — Orchestrate all steps
-# ─────────────────────────────────────────────────────────────────────────────
 def main() -> None:
     banner("ENTERPRISE DATA LAKEHOUSE — Live Ingestion Demo")
     print(f"\n  This script demonstrates the complete data ingestion flow:")
     print(f"  Source CSV → SeaweedFS (S3) → Apache Spark → Bronze Iceberg → dbt → Silver")
     print(f"\n  Timestamp: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
-    # ── Step 1: Generate CSV ──────────────────────────────────────────────────
     local_csv = generate_demo_csv()
 
     if not SPARK_AVAILABLE:
@@ -320,7 +284,6 @@ def main() -> None:
             "  docker exec lakehouse_spark_master spark-submit /opt/lakehouse/scripts/demo_ingest.py"
         )
 
-    # ── Build Spark session ───────────────────────────────────────────────────
     spark = (
         SparkSession.builder.appName("lakehouse-demo-ingest")
         .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions")
@@ -338,13 +301,11 @@ def main() -> None:
     )
     spark.sparkContext.setLogLevel("ERROR")
 
-    # ── Steps 2–5 ─────────────────────────────────────────────────────────────
     upload_to_s3(spark, local_csv)
     row_count = ingest_to_bronze(spark)
     verify_existing_bronze(spark)
     run_dbt_silver(spark)
 
-    # ── Final Summary ─────────────────────────────────────────────────────────
     banner("DEMO COMPLETE — Full Pipeline Verified")
     print(f"""
   WHAT JUST HAPPENED:

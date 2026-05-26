@@ -33,7 +33,6 @@ def ingest_kafka_to_bronze(topic: str, table: str, output_path: str):
     spark = get_spark(f"bronze_ingest_{topic.replace('.', '_')}")
     spark.sparkContext.setLogLevel("WARN")
 
-    # ── Read from Kafka (micro-batch) ─────────────────────────────────────────
     kafka_df = (
         spark.readStream
         .format("kafka")
@@ -45,7 +44,6 @@ def ingest_kafka_to_bronze(topic: str, table: str, output_path: str):
         .load()
     )
 
-    # ── Parse raw JSON payload ────────────────────────────────────────────────
     raw_df = kafka_df.select(
         col("key").cast(StringType()).alias("_kafka_key"),
         col("value").cast(StringType()).alias("_raw_payload"),
@@ -55,7 +53,6 @@ def ingest_kafka_to_bronze(topic: str, table: str, output_path: str):
         col("timestamp").alias("_kafka_timestamp"),
     )
 
-    # ── ALCOA+ Metadata Tagging ───────────────────────────────────────────────
     import hashlib
     from pyspark.sql.functions import sha2, concat_ws, md5
 
@@ -75,16 +72,13 @@ def ingest_kafka_to_bronze(topic: str, table: str, output_path: str):
         "_ingest_hour",  hour(current_timestamp())
     )
 
-    # ── Write to Iceberg (append, partitioned by date) ────────────────────────
     def write_batch(batch_df, batch_id):
         table_parts = table.split(".")
         namespace = ".".join(table_parts[:-1])
         table_name = table_parts[-1]
 
-        # Create namespace if not exists
         spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {namespace}")
 
-        # Create Iceberg table if not exists
         spark.sql(f"""
             CREATE TABLE IF NOT EXISTS {table} (
                 _kafka_key        STRING,
@@ -115,7 +109,6 @@ def ingest_kafka_to_bronze(topic: str, table: str, output_path: str):
         batch_df.writeTo(table).append()
         print(f"[batch_id={batch_id}] Written {batch_df.count()} rows to {table}")
 
-    # ── Streaming Query ───────────────────────────────────────────────────────
     query = (
         enriched_df.writeStream
         .foreachBatch(write_batch)
@@ -124,7 +117,7 @@ def ingest_kafka_to_bronze(topic: str, table: str, output_path: str):
         .start()
     )
 
-    query.awaitTermination(timeout=600)  # run for 10 min per Airflow trigger
+    query.awaitTermination(timeout=600)
     query.stop()
 
 

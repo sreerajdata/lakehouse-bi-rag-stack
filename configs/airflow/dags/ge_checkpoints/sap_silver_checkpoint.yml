@@ -1,4 +1,3 @@
-# SAP Silver Layer Checkpoint — Inventory Movement Validation
 name: sap_silver_checkpoint
 config_version: 1.0
 class_name: Checkpoint
@@ -15,36 +14,30 @@ validations:
 
 expectation_suite_name: sap_silver_suite
 expectations:
-  # quantity must be positive
   - expectation_type: expect_column_values_to_be_between
     kwargs:
       column: quantity
       min_value: 0
       strictly: true
 
-  # valuation_amount_inr must be non-negative
   - expectation_type: expect_column_values_to_be_between
     kwargs:
       column: valuation_amount_inr
       min_value: 0
 
-  # posting_date must not be null
   - expectation_type: expect_column_values_to_not_be_null
     kwargs:
       column: posting_date
 
-  # document_number must not be null
   - expectation_type: expect_column_values_to_not_be_null
     kwargs:
       column: document_number
 
-  # movement_category must be valid
   - expectation_type: expect_column_values_to_be_in_set
     kwargs:
       column: movement_category
       value_set: ["receipt", "issue", "transfer", "scrap", "other"]
 
-  # material_code must not be null
   - expectation_type: expect_column_values_to_not_be_null
     kwargs:
       column: material_code

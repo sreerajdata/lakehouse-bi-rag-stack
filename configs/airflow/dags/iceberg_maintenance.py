@@ -9,10 +9,8 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 
-# Configuration
 SPARK_CONN_ID = "spark_default"
 
-# Tables to maintain (catalog.schema.table)
 BRONZE_TABLES = [
     "lakehouse.bronze.mes_production_orders",
     "lakehouse.bronze.iqms_quality_tests",
@@ -67,7 +65,7 @@ dag = DAG(
     dag_id="iceberg_maintenance",
     default_args=default_args,
     description="Daily Iceberg table maintenance: snapshots, compaction, analysis",
-    schedule_interval="0 2 * * *",  # 2:00 AM UTC
+    schedule_interval="0 2 * * *",
     start_date=datetime(2025, 1, 1),
     catchup=False,
     max_active_runs=1,
@@ -98,7 +96,6 @@ def run_iceberg_maintenance(**context):
 
     results = {"expired": 0, "compacted": 0, "rewritten": 0, "analyzed": 0, "errors": []}
 
-    # 1. Expire old snapshots (all tables, >7 days)
     for table in ALL_TABLES:
         try:
             spark.sql(f"""
@@ -114,7 +111,6 @@ def run_iceberg_maintenance(**context):
             results["errors"].append(f"expire_snapshots({table}): {e}")
             print(f"  ⚠️ Expire failed: {table}: {e}")
 
-    # 2. Rewrite data files (silver tables — these grow from incremental)
     for table in SILVER_TABLES:
         try:
             spark.sql(f"""
@@ -128,7 +124,6 @@ def run_iceberg_maintenance(**context):
             results["errors"].append(f"rewrite_data_files({table}): {e}")
             print(f"  ⚠️ Compaction failed: {table}: {e}")
 
-    # 3. Rewrite manifests (gold tables — improve read performance)
     for table in GOLD_TABLES:
         try:
             spark.sql(f"""
@@ -142,19 +137,16 @@ def run_iceberg_maintenance(**context):
             results["errors"].append(f"rewrite_manifests({table}): {e}")
             print(f"  ⚠️ Manifest rewrite failed: {table}: {e}")
 
-    # 4. Analyze all tables (refresh stats for Trino optimizer)
     for table in ALL_TABLES:
         try:
             spark.sql(f"ANALYZE TABLE {table} COMPUTE STATISTICS FOR ALL COLUMNS")
             results["analyzed"] += 1
             print(f"  ✅ Analyzed: {table}")
         except Exception as e:
-            # ANALYZE may not be supported on all Iceberg versions
             print(f"  ⚠️ Analyze skipped: {table}: {e}")
 
     spark.stop()
 
-    # Summary
     print(f"\n{'='*60}")
     print(f"Iceberg Maintenance Summary:")
     print(f"  Snapshots expired: {results['expired']}/{len(ALL_TABLES)}")
@@ -163,7 +155,6 @@ def run_iceberg_maintenance(**context):
     print(f"  Tables analyzed:   {results['analyzed']}/{len(ALL_TABLES)}")
     print(f"  Errors:            {len(results['errors'])}")
 
-    # Push results to XCom
     context["ti"].xcom_push(key="maintenance_results", value=results)
 
     if results["errors"]:
@@ -182,7 +173,6 @@ def push_maintenance_metrics(**context):
 
     try:
         import httpx
-        # Try to push to Prometheus Pushgateway
         metrics = (
             f'# HELP iceberg_maintenance_snapshots_expired Count of tables with expired snapshots\n'
             f'# TYPE iceberg_maintenance_snapshots_expired gauge\n'
@@ -205,7 +195,6 @@ def push_maintenance_metrics(**context):
         print(f"Could not push metrics (Pushgateway may not be available): {e}")
 
 
-# Task Definitions
 t_maintenance = PythonOperator(
     task_id="run_maintenance",
     python_callable=run_iceberg_maintenance,
