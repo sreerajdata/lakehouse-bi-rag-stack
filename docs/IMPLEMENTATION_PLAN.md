@@ -1,633 +1,356 @@
-# TPL Data Lakehouse — Full Implementation Plan
-## Airgapped On-Prem Docker Stack | SeaweedFS + Apache Iceberg + OSS Tooling
+# Implementation Plan
 
----
+This plan describes the current lakehouse build and the recommended path for improving it. It is written for maintainers who need to understand what is already implemented, what each part is responsible for, and what should be hardened next.
 
-## Architecture Summary
+## Current Architecture
 
-```
-DATA SOURCES  →  INGESTION  →  BRONZE  →  SILVER  →  GOLD  →  SERVING
-(Synthetic)      Kafka/NiFi     Iceberg    dbt/GE     dbt      Trino/Superset/AI
-                 Debezium       SeaweedFS
-```
-
-**Storage Backend:** SeaweedFS S3 (replaces Dell ObjectScale)
-**Table Format:** Apache Iceberg (ACID, time-travel, schema evolution)
-**Compute:** Apache Spark 3.4
-**Orchestration:** Apache Airflow 2.8
-**Transformation:** dbt Core (Trino dialect)
-**Query Engine:** Apache Trino 435
-**AI:** Ollama (Llama 3) + LangChain + Milvus
-
----
-
-## Phase 0 — Environment Prerequisites
-
-### System Requirements (Minimum for Dev)
-
-| Resource | Minimum | Recommended |
-|---|---|---|
-| CPU Cores | 8 | 16+ |
-| RAM | 32 GB | 64 GB |
-| Disk | 200 GB | 500 GB SSD |
-| OS | Ubuntu 22.04 / macOS 14 | Ubuntu 22.04 |
-| Docker | 24.x+ | Latest |
-| Docker Compose | 2.20+ | Latest |
-
-### Install Prerequisites
-
-```bash
-# Ubuntu
-sudo apt-get update
-sudo apt-get install -y docker.io docker-compose-plugin make git curl
-
-# Add user to docker group
-sudo usermod -aG docker $USER
-newgrp docker
-
-# Verify
-docker --version
-docker compose version
-make --version
+```text
+Sources and synthetic events
+  -> Kafka, Kafka Connect, NiFi
+  -> SeaweedFS object storage
+  -> Iceberg Bronze tables
+  -> Spark, Airflow, dbt, Great Expectations
+  -> Silver conformed models
+  -> Gold analytics marts
+  -> Trino SQL
+  -> Superset BI, Grafana operations, Jupyter analysis, LangChain RAG
+  -> DataHub governance and lineage
 ```
 
-### Project Setup
+## Current Capabilities
 
-```bash
-git clone <your-repo>/tpl-lakehouse.git
-cd tpl-lakehouse
+| Area | Implemented Capability |
+| --- | --- |
+| Local runtime | Docker Compose profiles for core, ingestion, synthetic, processing, lakehouse, analytics, AI, monitoring, governance, and CI/CD. |
+| Storage | SeaweedFS S3-compatible storage for lakehouse buckets, documents, model artifacts, and Milvus backing storage. |
+| Table format | Apache Iceberg through Hive Metastore and Trino catalog configuration. |
+| Ingestion | Kafka, Kafka Connect, NiFi, synthetic manufacturing data, source generation scripts, and Bronze load helpers. |
+| Processing | Spark jobs, Airflow DAGs, dbt transformations, and Great Expectations checks. |
+| BI | Gold marts exposed through Trino and consumable by Superset. |
+| RAG | LangChain Streamlit app using Ollama, Milvus, Tika, document indexing, and optional Trino query tools. |
+| Governance | DataHub recipes, glossary configuration, lineage helper scripts, OpenSearch, Neo4j, and OpenBao. |
+| Observability | Prometheus, Grafana, Loki, Promtail, node exporter, PostgreSQL exporter, and dashboard provisioning. |
+| Developer workflow | Make targets, startup scripts, health checks, integration test script, and runbook docs. |
 
-# Copy and configure env
-cp .env.example .env
-# Edit .env if needed (passwords, bucket names, etc.)
+## Primary Use Cases
 
-# Prepare scripts
-chmod +x scripts/*.sh
+### Use Case 1: BI Lakehouse
+
+Goal: show a complete analytics flow from operational events to dashboard-ready marts.
+
+Path:
+
+```text
+Synthetic or source data -> Kafka/NiFi -> Bronze -> Silver -> Gold -> Trino -> Superset
 ```
 
----
+Main files:
 
-## Phase 1 — Core Infrastructure (Day 1)
+- `synthetic_data/generator.py`
+- `scripts/create_bronze_tables.py`
+- `configs/airflow/dags/medallion_pipeline.py`
+- `dbt/models/silver/`
+- `dbt/models/gold/`
+- `scripts/setup_superset.py`
 
-### 1.1 Start Core Layer
+Definition of done:
+
+- Kafka topics receive events.
+- Bronze tables exist in Iceberg.
+- Silver and Gold dbt models run successfully.
+- Superset can query Gold tables through Trino.
+- At least one business dashboard is available for OEE, quality, inventory, training, or CAPA.
+
+### Use Case 2: RAG and Data Assistant
+
+Goal: provide a local AI assistant that can answer from project documents and, where enabled, query lakehouse tables.
+
+Path:
+
+```text
+Documents -> Tika -> embeddings -> Milvus -> LangChain app -> Ollama
+Gold/Silver tables -> Trino helper -> LangChain app
+```
+
+Main files:
+
+- `dockerfiles/langchain-app/app.py`
+- `dockerfiles/langchain-app/utils/document_qa.py`
+- `dockerfiles/langchain-app/utils/index_documents.py`
+- `dockerfiles/langchain-app/utils/trino_tool.py`
+- `dockerfiles/langchain-app/requirements.txt`
+
+Definition of done:
+
+- Ollama has the chat and embedding models.
+- Milvus is healthy.
+- Documents can be indexed.
+- The Streamlit app responds through RAG.
+- Trino-backed questions can query known lakehouse tables when enabled.
+
+### Use Case 3: Operations, Governance, and Demo Control
+
+Goal: prove the platform is observable, governable, and explainable.
+
+Path:
+
+```text
+Services -> Prometheus/Loki -> Grafana
+dbt/Airflow/Trino metadata -> DataHub
+credentials/demo secrets -> OpenBao
+```
+
+Main files:
+
+- `configs/prometheus/prometheus.yml`
+- `configs/grafana/provisioning/`
+- `configs/loki/loki-config.yml`
+- `configs/promtail/promtail-config.yml`
+- `configs/datahub/`
+- `configs/airflow/dags/datahub_lineage/emit_lineage.py`
+
+Definition of done:
+
+- Grafana dashboards load.
+- Prometheus targets are up.
+- Loki is ready.
+- DataHub can ingest core metadata.
+- Lineage story is clear from source to Gold.
+
+## Implementation Phases
+
+### Phase 1: Baseline Runtime
+
+Status: implemented.
+
+Scope:
+
+- Docker Compose network and profiles.
+- PostgreSQL shared metadata database.
+- SeaweedFS master, volume, filer, and S3 gateway.
+- Bucket initialization script.
+
+Validation:
 
 ```bash
 make up-core
-```
-
-**Services started:** PostgreSQL, SeaweedFS (master + volume + filer + S3 gateway)
-
-### 1.2 Validate SeaweedFS
-
-```bash
-# Check SeaweedFS master
+make init-buckets
 curl http://localhost:9333/cluster/status
-
-# List S3 buckets (auto-created by init script)
-aws --endpoint-url=http://localhost:8333 \
-    --no-verify-ssl \
-    s3 ls
-
-# Expected buckets:
-# lakehouse-bronze
-# lakehouse-silver
-# lakehouse-gold
-# lakehouse-models
-# lakehouse-docs
-# milvus-bucket
 ```
 
-### 1.3 Validate PostgreSQL
+### Phase 2: Ingestion
 
-```bash
-docker exec -it lakehouse_postgres psql -U admin -c "\l"
-# Expected: airflow, hive_metastore, superset, lakehouse_meta databases
-```
+Status: implemented.
 
-**✅ Phase 1 Complete Criteria:**
-- SeaweedFS master/volume/filer/S3 all healthy
-- All 5 S3 buckets exist
-- PostgreSQL has 4 databases created
+Scope:
 
----
+- Kafka and Zookeeper.
+- Schema Registry.
+- Kafka Connect.
+- Kafka UI.
+- NiFi.
+- Synthetic data generator.
 
-## Phase 2 — Data Ingestion Layer (Day 1–2)
-
-### 2.1 Start Ingestion
+Validation:
 
 ```bash
 make up-ingestion
-```
-
-**Services started:** Zookeeper, Kafka, Schema Registry, Kafka Connect (+ Debezium), NiFi, Kafka UI
-
-### 2.2 Validate Kafka
-
-```bash
-# Check Kafka topics (after synthetic data starts)
-make kafka-topics
-
-# Kafka UI (browser)
-open http://localhost:9000
-```
-
-### 2.3 Start Synthetic Data Generator
-
-```bash
 make up-synthetic
+make kafka-topics
+docker logs lakehouse_synthetic_datagen --tail 50
 ```
 
-This creates streaming events into these Kafka topics:
+### Phase 3: Lakehouse Tables
 
-| Topic | Source | Rate |
-|---|---|---|
-| `mes.production_orders` | MES | ~2/sec |
-| `mes.machine_status` | MES | ~2/sec |
-| `mes.oee_metrics` | MES | ~1/sec |
-| `iqms.quality_tests` | IQMS | ~2/sec |
-| `iqms.deviations` | IQMS | ~0.2/sec |
-| `historian.process_parameters` | L2/Historian | ~10/sec |
-| `trackwise.capas` | Trackwise | ~0.1/sec |
-| `sap.inventory_movements` | SAP ECC | ~1/sec |
-| `tms.training_completions` | TMS | ~0.3/sec |
+Status: implemented with room for hardening.
 
-### 2.4 Validate Message Flow
+Scope:
 
-```bash
-# Check message count per topic in Kafka UI
-open http://localhost:9000
+- Bronze creation/loading helpers.
+- Spark and Iceberg configuration.
+- Hive Metastore.
+- Trino Iceberg catalog.
 
-# Or via CLI
-docker exec lakehouse_kafka \
-  kafka-consumer-groups \
-  --bootstrap-server localhost:9092 \
-  --describe --all-groups
-```
-
-### 2.5 Configure NiFi (Optional — for File/OPC-UA ingestion)
-
-```bash
-open http://localhost:8090
-# Login: admin / adminadminadmin
-# Import flow template from: configs/nifi/templates/
-```
-
-**✅ Phase 2 Complete Criteria:**
-- All 9 Kafka topics receiving messages
-- Kafka Connect running with Debezium connectors installed
-- NiFi accessible and ready
-
----
-
-## Phase 3 — Processing Layer (Day 2–3)
-
-### 3.1 Start Processing
+Validation:
 
 ```bash
 make up-processing
-```
-
-**Services started:** Spark Master + 2 Workers, Airflow (init + webserver + scheduler + worker), Redis, dbt, Tika, Tesseract
-
-### 3.2 Validate Spark
-
-```bash
-# Spark Master UI
-open http://localhost:8181
-
-# Test Spark shell with Iceberg + SeaweedFS
-make spark-shell
-# scala> spark.sql("SHOW NAMESPACES IN lakehouse").show()
-```
-
-### 3.3 Validate Airflow
-
-```bash
-open http://localhost:8280
-# Login: admin / admin
-
-# Trigger the medallion pipeline manually
-# DAG: tpl_medallion_pipeline
-```
-
-### 3.4 First Full Pipeline Run
-
-```bash
-# Unpause and trigger the DAG
-docker exec lakehouse_airflow_web \
-  airflow dags unpause tpl_medallion_pipeline
-
-docker exec lakehouse_airflow_web \
-  airflow dags trigger tpl_medallion_pipeline
-```
-
-**Monitor in Airflow UI → DAGs → tpl_medallion_pipeline → Grid view**
-
-**✅ Phase 3 Complete Criteria:**
-- Spark master shows 2 workers connected
-- Airflow shows all tasks passing (green) on first run
-- Bronze Iceberg tables created in SeaweedFS
-
----
-
-## Phase 4 — Lakehouse Layer (Day 3)
-
-### 4.1 Start Lakehouse
-
-```bash
 make up-lakehouse
-```
-
-**Services started:** Hive Metastore (PostgreSQL backend), Trino 435
-
-### 4.2 Validate Hive Metastore
-
-```bash
-docker logs lakehouse_hive_metastore | grep "Started"
-# Expected: "Starting Metastore Server"
-```
-
-### 4.3 Validate Trino + Iceberg
-
-```bash
 make trino-shell
-
-# In Trino CLI:
-trino> SHOW CATALOGS;
-trino> SHOW SCHEMAS IN iceberg;
-trino> SHOW TABLES IN iceberg.bronze;
-
-# Query bronze layer
-trino> SELECT COUNT(*) FROM iceberg.bronze.mes_production_orders;
-
-# Check time-travel
-trino> SELECT * FROM iceberg.bronze.mes_production_orders
-       FOR TIMESTAMP AS OF TIMESTAMP '2024-01-01 00:00:00';
 ```
 
-### 4.4 Create Iceberg Namespaces
+SQL:
 
-```bash
-make trino-shell
-# Create namespaces
-trino> CREATE SCHEMA IF NOT EXISTS iceberg.bronze;
-trino> CREATE SCHEMA IF NOT EXISTS iceberg.silver;
-trino> CREATE SCHEMA IF NOT EXISTS iceberg.gold;
+```sql
+SHOW SCHEMAS FROM iceberg;
+SHOW TABLES FROM iceberg.bronze;
 ```
 
-**✅ Phase 4 Complete Criteria:**
-- Trino shows `iceberg` catalog with bronze/silver/gold schemas
-- Bronze tables queryable via Trino
-- Table history and snapshots visible
+### Phase 4: Silver and Gold Transformations
 
----
+Status: implemented.
 
-## Phase 5 — dbt Silver & Gold Transformations (Day 3–4)
+Scope:
 
-### 5.1 Run dbt Silver Models
+- dbt project.
+- Silver source models.
+- Gold marts.
+- dbt tests.
+- Great Expectations checkpoints.
+
+Validation:
 
 ```bash
 make dbt-run
-# or selectively:
-docker exec lakehouse_dbt dbt run --select silver
-
-# Test data quality
 make dbt-test
 ```
 
-### 5.2 Silver Table Verification
+Recommended next improvements:
+
+- Add more source freshness checks.
+- Add row-count reconciliation between Bronze and Silver.
+- Add KPI-specific acceptance thresholds for Gold models.
+
+### Phase 5: BI
+
+Status: implemented.
+
+Scope:
+
+- Superset container.
+- Trino database connection.
+- Chart/dashboard setup helper.
+- Gold marts for analytics.
+
+Validation:
 
 ```bash
-make trino-shell
-trino> SELECT
-         COUNT(*),
-         AVG(yield_pct),
-         COUNT(DISTINCT machine_id)
-       FROM iceberg.silver.silver_mes_production_orders;
+curl http://localhost:8500/health
+python scripts/setup_superset.py
 ```
 
-### 5.3 Run Gold Marts
+Recommended next improvements:
+
+- Export final dashboards as versioned assets.
+- Add dashboard screenshots to docs.
+- Add role-based Superset examples for business and admin users.
+
+### Phase 6: RAG
+
+Status: implemented.
+
+Scope:
+
+- Ollama.
+- Milvus.
+- Attu.
+- Tika.
+- LangChain app.
+- Document indexing and QA utilities.
+- Trino query helper.
+
+Validation:
 
 ```bash
-docker exec lakehouse_dbt dbt run --select gold
+curl http://localhost:9091/healthz
+docker exec lakehouse_ollama ollama list
+docker logs lakehouse_langchain_app --tail 100
 ```
 
-### 5.4 Verify Gold Layer
+Recommended next improvements:
 
-```bash
-trino> SELECT
-         machine_id, shift, oee_score, quality_pass_rate_pct
-       FROM iceberg.gold.gold_manufacturing_oee_mart
-       ORDER BY production_date DESC
-       LIMIT 20;
+- Add a sample document corpus under `docs/sample-rag/`.
+- Add an automated smoke test for indexing and retrieval.
+- Add citation display in the Streamlit UI for retrieved chunks.
 
-trino> SELECT
-         department, report_month, closure_rate_pct, compliance_rag_status
-       FROM iceberg.gold.gold_compliance_capa_mart
-       WHERE compliance_rag_status = 'RED';
-```
+### Phase 7: Governance
 
-**✅ Phase 5 Complete Criteria:**
-- All dbt models run without errors
-- Silver tables have cleaned, enriched data
-- Gold marts queryable with calculated KPIs
-- Great Expectations DQ checks passing
+Status: implemented as a local demo layer.
 
----
+Scope:
 
-## Phase 6 — Analytics & BI (Day 4–5)
+- DataHub GMS and frontend.
+- OpenSearch.
+- Neo4j.
+- OpenBao.
+- DataHub recipes.
+- Glossary and lineage helpers.
 
-### 6.1 Start Analytics Layer
-
-```bash
-make up-analytics
-```
-
-**Services started:** JupyterHub, Apache Superset
-
-### 6.2 Configure Superset
-
-```bash
-open http://localhost:8500
-# Login: admin / admin
-
-# Add Trino connection:
-# Settings → Database Connections → Add Database
-# Database Type: Trino
-# SQLAlchemy URI: trino://admin@trino:8080/iceberg
-```
-
-### 6.3 Create Dashboards in Superset
-
-Key dashboards to build:
-1. **Manufacturing OEE Dashboard** (source: `gold_manufacturing_oee_mart`)
-2. **Quality & Compliance Dashboard** (source: `gold_compliance_capa_mart`)
-3. **Inventory & Supply Chain** (source: `gold_sap_inventory_mart`)
-4. **Training Compliance** (source: `gold_tms_compliance_mart`)
-
-### 6.4 JupyterHub Notebooks
-
-```bash
-open http://localhost:8400
-# Login: admin (create password on first login)
-
-# Sample notebook to test Trino from Jupyter:
-import trino
-conn = trino.dbapi.connect(
-    host="trino", port=8080, user="admin", catalog="iceberg"
-)
-df = pd.read_sql("SELECT * FROM gold.gold_manufacturing_oee_mart LIMIT 100", conn)
-```
-
-**✅ Phase 6 Complete Criteria:**
-- Superset connected to Trino/Iceberg
-- At least 2 dashboards built from Gold layer
-- JupyterHub accessible with PySpark/Trino kernels
-
----
-
-## Phase 7 — AI & Intelligent Insights (Day 5–6)
-
-### 7.1 Start AI Layer
-
-```bash
-make up-ai
-```
-
-**Services started:** Ollama (Llama 3), Milvus (vector DB), LangChain + Streamlit chatbot
-
-### 7.2 Pull Llama 3 Model
-
-```bash
-make ollama-pull-llama3
-# This downloads ~4GB, takes 5-15 min depending on speed
-# For airgap: pre-download and mount the model volume
-```
-
-### 7.3 Index Documents into Milvus
-
-```bash
-# Upload documents (SOPs, batch records) to SeaweedFS
-aws --endpoint-url=http://localhost:8333 s3 cp \
-    ./docs/sop_gmp_001.pdf s3://lakehouse-docs/
-
-# Run the document indexer
-docker exec lakehouse_langchain_app \
-    python utils/index_documents.py \
-    --bucket lakehouse-docs \
-    --collection tpl_documents
-```
-
-### 7.4 Test AI Chatbot
-
-```bash
-open http://localhost:8501
-
-# Test queries:
-# "What is the OEE for machine MCH-001 this week?"
-# "Show me all CAPAs overdue by more than 30 days"
-# "What are the 21 CFR Part 11 requirements for audit trails?"
-```
-
-**✅ Phase 7 Complete Criteria:**
-- Llama 3 responding via Ollama
-- Milvus collection created with document embeddings
-- SQL Analytics mode querying Gold layer via Trino
-- RAG mode retrieving from documents
-
----
-
-## Phase 8 — Monitoring & Observability (Day 6)
-
-### 8.1 Start Monitoring
-
-```bash
-make up-monitoring
-```
-
-**Services started:** Prometheus, Grafana, Loki, Promtail
-
-### 8.2 Grafana Dashboards
-
-```bash
-open http://localhost:3000
-# Login: admin / admin123
-
-# Import community dashboards:
-# - Kafka: Dashboard ID 7589
-# - Spark: Dashboard ID 11069
-# - Airflow: Dashboard ID 19518
-# - Trino: Dashboard ID 16567
-# - PostgreSQL: Dashboard ID 9628
-```
-
-### 8.3 Configure Alerts
-
-In Grafana → Alerting → Alert Rules, create:
-- Airflow DAG failure alert
-- Kafka consumer lag > 10,000 messages
-- SeaweedFS volume > 80% capacity
-- Spark job runtime > 30 minutes
-
-**✅ Phase 8 Complete Criteria:**
-- All scrape targets visible in Prometheus
-- Container logs streaming to Loki
-- At least 4 Grafana dashboards operational
-- Alert rules configured
-
----
-
-## Phase 9 — Data Governance (Day 7)
-
-### 9.1 Start Governance
+Validation:
 
 ```bash
 make up-governance
+curl http://localhost:9002
+curl http://localhost:8880/health
 ```
 
-**Services started:** DataHub (GMS + Frontend + Neo4j), OpenSearch, OpenBao
+Recommended next improvements:
 
-### 9.2 Configure DataHub
+- Add one-click metadata ingestion command.
+- Add screenshots or expected DataHub entities.
+- Map glossary terms to Gold BI marts.
+
+### Phase 8: Observability
+
+Status: implemented.
+
+Scope:
+
+- Prometheus scrape configuration.
+- Grafana datasources and dashboards.
+- Loki and Promtail.
+- Exporters.
+
+Validation:
 
 ```bash
-open http://localhost:9002
-# Default login: datahub / datahub
-
-# Ingest metadata from Trino:
-docker exec lakehouse_datahub_gms \
-    datahub ingest -c /configs/datahub/trino_recipe.yml
+make up-monitoring
+curl http://localhost:9090/-/healthy
+curl http://localhost:3000/api/health
+curl http://localhost:3100/ready
 ```
 
-### 9.3 Configure OpenBao (Secrets)
+Recommended next improvements:
+
+- Add alert rules for Airflow failures, Kafka lag, Trino failure rate, and storage pressure.
+- Add dashboard screenshots to the demo guide.
+- Add service-level objectives for demo readiness.
+
+## Hardening Backlog
+
+| Priority | Item | Reason |
+| --- | --- | --- |
+| High | Add sample data fixtures for deterministic demo runs. | Makes demos repeatable. |
+| High | Add smoke test script for BI path. | Confirms Bronze to Superset readiness quickly. |
+| High | Add smoke test script for RAG path. | Confirms document indexing and chat readiness quickly. |
+| Medium | Version Superset dashboard exports. | Keeps BI assets portable. |
+| Medium | Add DataHub ingestion Make targets. | Simplifies governance demo setup. |
+| Medium | Add environment profiles for lightweight demo vs full stack. | Helps smaller machines. |
+| Low | Add GitLab CI pipeline template. | Useful only when local GitLab is part of the demo. |
+
+## Operational Rules
+
+- Keep generated outputs out of Git.
+- Keep `.env` local and never commit credentials.
+- Use `make down` for normal shutdown.
+- Use `make clean` only when a full volume reset is intended.
+- Validate Compose after editing `docker-compose.yml`.
+- Compile Python after editing scripts or app code.
+- Keep documentation aligned with actual service names and ports.
+
+## Release Checklist
+
+Before handing the stack to another user:
 
 ```bash
-# Initialize OpenBao
-docker exec lakehouse_openbao \
-    bao secrets enable kv
-
-# Store service credentials
-docker exec lakehouse_openbao \
-    bao kv put kv/seaweedfs access_key=admin secret_key=admin123
-
-docker exec lakehouse_openbao \
-    bao kv put kv/postgres username=admin password=admin123
+git status --short
+docker compose --env-file .env --profile all config --quiet
+python -m compileall -q scripts synthetic_data configs dockerfiles
 ```
 
-**✅ Phase 9 Complete Criteria:**
-- DataHub showing all Iceberg tables with lineage
-- OpenSearch indexing audit logs
-- OpenBao storing all service secrets
-- Column-level lineage from bronze → silver → gold visible
+Then verify:
 
----
-
-## Phase 10 — CI/CD & GitLab (Day 7–8)
-
-### 10.1 Start GitLab
-
-```bash
-make up-cicd
-# Allow 5-10 minutes to fully initialize
-open http://localhost:8929
-# Default login: root (set password on first login)
-```
-
-### 10.2 Push Codebase to GitLab
-
-```bash
-git remote add gitlab http://localhost:8929/tpl/data-lakehouse.git
-git push gitlab main
-```
-
-### 10.3 CI/CD Pipeline (`.gitlab-ci.yml`)
-
-Create `.gitlab-ci.yml` with stages:
-- `lint` → dbt compile + sqlfluff
-- `test` → dbt test + Great Expectations
-- `deploy-dev` → dbt run on dev schema
-- `deploy-prod` → dbt run on prod schema (manual gate)
-
-**✅ Phase 10 Complete Criteria:**
-- GitLab accessible with project pushed
-- CI/CD pipeline running on every commit
-- dbt tests passing in pipeline
-
----
-
-## Airgap Transfer Checklist
-
-For moving to an air-gapped production environment:
-
-```bash
-# 1. Pre-pull all images
-make pull-images
-
-# 2. Save to tarballs
-make save-images
-# Output: ./airgap-images/*.tar.gz (~25GB total)
-
-# 3. Transfer to target machine (USB / secure file transfer)
-rsync -avz ./airgap-images/ user@prod-server:/opt/lakehouse/images/
-
-# 4. On target machine: load images
-make load-images
-
-# 5. Configure .env for production values
-cp .env .env.prod
-vim .env.prod
-
-# 6. Start stack
-make up-all
-```
-
----
-
-## Port Reference
-
-| Service | Port | URL |
-|---|---|---|
-| SeaweedFS S3 | 8333 | http://localhost:8333 |
-| SeaweedFS Filer | 8888 | http://localhost:8888 |
-| SeaweedFS Master | 9333 | http://localhost:9333 |
-| PostgreSQL | 5432 | localhost:5432 |
-| Kafka | 9092 | localhost:9092 |
-| Kafka UI | 9000 | http://localhost:9000 |
-| Schema Registry | 8081 | http://localhost:8081 |
-| Kafka Connect | 8083 | http://localhost:8083 |
-| NiFi | 8090 | http://localhost:8090 |
-| Spark Master UI | 8181 | http://localhost:8181 |
-| Airflow | 8280 | http://localhost:8280 |
-| Hive Metastore | 9083 | thrift://localhost:9083 |
-| Trino | 8180 | http://localhost:8180 |
-| JupyterHub | 8400 | http://localhost:8400 |
-| Superset | 8500 | http://localhost:8500 |
-| Ollama | 11434 | http://localhost:11434 |
-| Milvus | 19530 | localhost:19530 |
-| AI Chatbot | 8501 | http://localhost:8501 |
-| Prometheus | 9090 | http://localhost:9090 |
-| Grafana | 3000 | http://localhost:3000 |
-| Loki | 3100 | http://localhost:3100 |
-| DataHub | 9002 | http://localhost:9002 |
-| OpenSearch | 9200 | http://localhost:9200 |
-| OpenBao | 8200 | http://localhost:8200 |
-| GitLab | 8929 | http://localhost:8929 |
-
----
-
-## Regulatory Compliance Notes
-
-### 21 CFR Part 11 Addressed By:
-- Audit trail: OpenSearch + Airflow logs + Iceberg snapshots
-- Electronic signatures: OpenBao-managed credentials
-- System access control: Apache Ranger (RBAC)
-- Time-sync: Docker NTP + `_ingested_at` ALCOA+ timestamps on every record
-
-### ALCOA+ Fields on Every Bronze Record:
-| Field | ALCOA+ Attribute |
-|---|---|
-| `_source_system` | Attributable |
-| `_raw_payload` | Original |
-| `_ingested_at` | Contemporaneous |
-| `_row_hash` | Accurate |
-| `_kafka_offset` | Enduring |
-| `_ingest_year/month/day` | Available |
+- README is current.
+- `docs/STACK_EXECUTION_GUIDE.md` explains how to run the stack.
+- `docs/IMPLEMENTATION_PLAN.md` explains what is built and what remains.
+- `docs/TPL_DATA_LAKEHOUSE_CLIENT_DEMO.md` explains how to demo BI, RAG, and operations.
