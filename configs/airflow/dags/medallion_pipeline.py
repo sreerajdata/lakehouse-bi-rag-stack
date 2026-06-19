@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
+import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 import os
@@ -11,6 +13,7 @@ from typing import Optional
 from airflow import DAG
 from airflow.operators.bash import BashOperator
 from airflow.operators.python import PythonOperator
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 from airflow.providers.trino.operators.trino import TrinoOperator
 from sqlalchemy import create_engine, text
@@ -22,6 +25,9 @@ from confluent_kafka.admin import AdminClient
 ROOT_DIR = Path("/opt/airflow")
 SCRIPTS_DIR = ROOT_DIR / "scripts"
 DBT_DIR = ROOT_DIR / "dbt"
+DAGS_DIR = ROOT_DIR / "dags"
+DATAHUB_CONFIG_DIR = ROOT_DIR / "configs" / "datahub"
+AIRFLOW_LOCAL_BIN = Path("/home/airflow/.local/bin")
 SOURCE_DIR = ROOT_DIR / "data" / "source"
 BRONZE_MANIFEST_PATH = ROOT_DIR / "data" / ".bronze_source_manifest.json"
 PRIMARY_SOURCE_FILES = [
@@ -32,6 +38,10 @@ PRIMARY_SOURCE_FILES = [
     "sop_documents.csv",
 ]
 KAFKA_BOOTSTRAP = "kafka:9092"
+NIFI_API_URL = os.getenv("NIFI_API_URL", "http://nifi:8090/nifi-api")
+SCHEMA_REGISTRY_URL = os.getenv("SCHEMA_REGISTRY_URL", "http://schema-registry:8081")
+DATAHUB_GMS_URL = os.getenv("DATAHUB_GMS_URL", "http://datahub-gms:8080")
+DATAHUB_REQUIRED = os.getenv("DATAHUB_REQUIRED", "false").lower() == "true"
 TOPIC_MAP = {
     "mes_events": "mes.production_orders",
     "iqms_orders": "iqms.quality_tests",
@@ -39,11 +49,28 @@ TOPIC_MAP = {
     "sap_ecc_orders": "sap.inventory_movements",
     "sop_documents": "tms.training_completions",
 }
+SCHEMA_REGISTRY_TOPICS = sorted(
+    {
+        *TOPIC_MAP.values(),
+        "mes.machine_status",
+        "mes.oee_metrics",
+        "historian.process_parameters",
+        "trackwise.capas",
+        "trackwise.complaints",
+        "sap.purchase_orders",
+    }
+)
 TRINO_SQLALCHEMY_URL = "trino://admin@trino:8080/iceberg"
 SPARK_PACKAGES = ",".join(
     [
         "org.apache.iceberg:iceberg-spark-runtime-3.4_2.12:1.4.3",
         "org.apache.hadoop:hadoop-aws:3.3.4",
+    ]
+)
+KAFKA_SPARK_PACKAGES = ",".join(
+    [
+        SPARK_PACKAGES,
+        "org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.3",
     ]
 )
 SPARK_CONF = {
@@ -103,6 +130,23 @@ def load_previous_manifest() -> dict[str, dict[str, int]]:
     return json.loads(BRONZE_MANIFEST_PATH.read_text(encoding="utf-8"))
 
 
+def deploy_nifi_flows_task() -> str:
+    """
+    Deploy NiFi flows via the existing create_nifi_flow.py script.
+    The script is idempotent: if FLOW 1 and FLOW 2 already exist it will
+    start them; if missing it will create, configure, and start them.
+    Runs against the NiFi REST API at http://nifi:8090/nifi-api which is
+    reachable from the Airflow worker on lakehouse_net.
+    """
+    env = {
+        "NIFI_BASE_URL": "http://nifi:8090/nifi-api",
+        "NIFI_CLEANUP_EXISTING": "false",
+    }
+    output = run_python_script("create_nifi_flow.py", extra_env=env)
+    print(output)
+    return "NiFi flows deployed / verified"
+
+
 def generate_source_data_task():
     print("Skipping generation (handled by external synthetic_datagen container)")
     return "Skipped"
@@ -137,6 +181,84 @@ def run_bronze_ingest_task():
     if result.returncode != 0:
         raise RuntimeError(f"spark bronze ingest failed with exit code {result.returncode}")
     return "Completed"
+
+
+def run_kafka_bronze_ingest_task():
+    result = subprocess.run(
+        [
+            "spark-submit",
+            "--packages",
+            KAFKA_SPARK_PACKAGES,
+            str(DAGS_DIR / "spark_jobs" / "bronze_kafka_to_iceberg.py"),
+        ],
+        cwd=str(ROOT_DIR),
+        capture_output=True,
+        text=True,
+    )
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print(result.stderr)
+    if result.returncode != 0:
+        raise RuntimeError(f"kafka bronze ingest failed with exit code {result.returncode}")
+    return "Completed"
+
+
+def register_schema_subjects_task():
+    schema = {
+        "type": "object",
+        "additionalProperties": True,
+    }
+    registered = []
+    for topic in SCHEMA_REGISTRY_TOPICS:
+        payload = json.dumps(
+            {
+                "schemaType": "JSON",
+                "schema": json.dumps(schema),
+            }
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            f"{SCHEMA_REGISTRY_URL}/subjects/{topic}-value/versions",
+            data=payload,
+            headers={"Content-Type": "application/vnd.schemaregistry.v1+json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=20) as response:
+            registered.append({"topic": topic, "status": response.status})
+    print(f"Registered/verified {len(registered)} Schema Registry subjects.")
+    return registered
+
+
+def validate_nifi_integration_task():
+    with urllib.request.urlopen(f"{NIFI_API_URL}/flow/process-groups/root", timeout=20) as response:
+        flow = json.loads(response.read().decode("utf-8"))
+
+    process_groups = {
+        group["component"]["name"]
+        for group in flow["processGroupFlow"]["flow"].get("processGroups", [])
+    }
+    required_groups = {"FLOW 1 - CSV File Ingestion", "FLOW 2 - Kafka Consumer Flow"}
+    missing_groups = sorted(required_groups - process_groups)
+    if missing_groups:
+        raise RuntimeError(f"NiFi process groups missing: {missing_groups}")
+
+    nifi_rows = query_scalar(
+        """
+        select count(*)
+        from (
+            select _nifi_flow from iceberg.bronze.mes_events
+            union all select _nifi_flow from iceberg.bronze.iqms_orders
+            union all select _nifi_flow from iceberg.bronze.trackwise_deviations
+            union all select _nifi_flow from iceberg.bronze.sap_ecc_orders
+        ) as nifi_sources
+        where _nifi_flow = 'nifi_s3_ingest'
+        """
+    )
+    if nifi_rows <= 0:
+        raise RuntimeError("NiFi is configured, but no Bronze rows are stamped with _nifi_flow='nifi_s3_ingest'")
+
+    print(f"NiFi integration verified: {nifi_rows} Bronze rows came through nifi_s3_ingest.")
+    return {"nifi_bronze_rows": nifi_rows}
 
 
 def check_kafka_topics_task():
@@ -179,6 +301,77 @@ def run_gx_validation_task():
     passed = sum(int(match[0]) for match in matches)
     total = sum(int(match[1]) for match in matches)
     return {"passed": passed, "total": total}
+
+
+def emit_datahub_lineage_task(ti=None, **_kwargs):
+    run_id = ti.dag_run.run_id if ti and ti.dag_run else "manual"
+    script_path = DAGS_DIR / "datahub_lineage" / "emit_lineage.py"
+    result = subprocess.run(
+        [
+            "python",
+            str(script_path),
+            "--gms-url",
+            DATAHUB_GMS_URL,
+            "--run-id",
+            run_id,
+        ],
+        cwd=str(ROOT_DIR),
+        capture_output=True,
+        text=True,
+    )
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print(result.stderr)
+    if result.returncode != 0:
+        message = f"DataHub lineage emission failed with exit code {result.returncode}"
+        if DATAHUB_REQUIRED:
+            raise RuntimeError(message)
+        print(f"{message}; continuing because DATAHUB_REQUIRED is false.")
+        return "Skipped DataHub lineage emission"
+    return "Completed"
+
+
+def run_datahub_ingestion_task() -> str:
+    recipes = [
+        DATAHUB_CONFIG_DIR / "recipe_trino.yml",
+        DATAHUB_CONFIG_DIR / "recipe_dbt.yml",
+    ]
+    env = os.environ.copy()
+    env["PATH"] = f"{AIRFLOW_LOCAL_BIN}:{env.get('PATH', '')}"
+    datahub_cli = shutil.which("datahub", path=env["PATH"])
+    if not datahub_cli:
+        message = (
+            "DataHub CLI was not found. Rebuild the Airflow image so "
+            "acryl-datahub is installed, or set DATAHUB_REQUIRED=false to keep "
+            "governance ingestion best-effort."
+        )
+        if DATAHUB_REQUIRED:
+            raise RuntimeError(message)
+        print(f"{message} Continuing without DataHub ingestion.")
+        return "Skipped DataHub ingestion"
+
+    completed = []
+    for recipe in recipes:
+        result = subprocess.run(
+            [datahub_cli, "ingest", "-c", str(recipe)],
+            cwd=str(ROOT_DIR),
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr)
+        if result.returncode != 0:
+            message = f"DataHub ingestion failed for {recipe.name} with exit code {result.returncode}"
+            if DATAHUB_REQUIRED:
+                raise RuntimeError(message)
+            print(f"{message}; continuing because DATAHUB_REQUIRED is false.")
+            return f"Skipped remaining DataHub ingestion after {recipe.name} failed"
+        completed.append(recipe.name)
+    return f"Completed DataHub ingestion: {', '.join(completed)}"
 
 
 def query_scalar(sql: str) -> int:
@@ -226,6 +419,40 @@ def notify_pipeline_complete_task(ti=None, **_kwargs):
         f"Duration: {duration_minutes} minutes"
     )
     print(summary)
+    
+    try:
+        pushgateway_url = os.getenv("PUSHGATEWAY_URL", "http://pushgateway:9091")
+        metrics = (
+            f'# HELP medallion_bronze_rows Total rows in bronze\n'
+            f'# TYPE medallion_bronze_rows gauge\n'
+            f'medallion_bronze_rows {bronze_rows}\n'
+            f'# HELP medallion_silver_rows Total rows in silver\n'
+            f'# TYPE medallion_silver_rows gauge\n'
+            f'medallion_silver_rows {silver_rows}\n'
+            f'# HELP medallion_gold_rows Total rows in gold\n'
+            f'# TYPE medallion_gold_rows gauge\n'
+            f'medallion_gold_rows {gold_rows}\n'
+            f'# HELP medallion_gx_passed GX expectations passed\n'
+            f'# TYPE medallion_gx_passed gauge\n'
+            f'medallion_gx_passed {gx_summary.get("passed", 0)}\n'
+            f'# HELP medallion_gx_total GX expectations total\n'
+            f'# TYPE medallion_gx_total gauge\n'
+            f'medallion_gx_total {gx_summary.get("total", 0)}\n'
+            f'# HELP medallion_duration_minutes Pipeline duration\n'
+            f'# TYPE medallion_duration_minutes gauge\n'
+            f'medallion_duration_minutes {duration_minutes}\n'
+        )
+        request = urllib.request.Request(
+            f"{pushgateway_url}/metrics/job/medallion_pipeline",
+            data=metrics.encode("utf-8"),
+            headers={"Content-Type": "text/plain; version=0.0.4"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=10) as response:
+            print(f"Metrics pushed to Pushgateway: {response.status}")
+    except Exception as e:
+        print(f"Could not push metrics (Pushgateway may not be available): {e}")
+
     return summary
 
 
@@ -247,6 +474,13 @@ with DAG(
     max_active_runs=1,
     tags=["lakehouse", "demo", "medallion"],
 ) as dag:
+    deploy_nifi_flows = PythonOperator(
+        task_id="deploy_nifi_flows",
+        python_callable=deploy_nifi_flows_task,
+        retries=2,
+        retry_delay=timedelta(minutes=1),
+    )
+
     generate_source_data = PythonOperator(
         task_id="generate_source_data",
         python_callable=generate_source_data_task,
@@ -262,9 +496,26 @@ with DAG(
         python_callable=check_kafka_topics_task,
     )
 
+    register_schema_subjects = PythonOperator(
+        task_id="register_schema_subjects",
+        python_callable=register_schema_subjects_task,
+        do_xcom_push=False,
+    )
+
     spark_bronze_ingest = PythonOperator(
         task_id="spark_bronze_ingest",
         python_callable=run_bronze_ingest_task,
+    )
+
+    validate_nifi_integration = PythonOperator(
+        task_id="validate_nifi_integration",
+        python_callable=validate_nifi_integration_task,
+        do_xcom_push=False,
+    )
+
+    kafka_bronze_ingest = PythonOperator(
+        task_id="kafka_bronze_ingest",
+        python_callable=run_kafka_bronze_ingest_task,
     )
 
     verify_bronze_counts = TrinoOperator(
@@ -298,21 +549,53 @@ with DAG(
         bash_command=f"cd {DBT_DIR} && dbt test --select gold --profiles-dir {DBT_DIR} --project-dir {DBT_DIR}",
     )
 
+    dbt_docs_generate = BashOperator(
+        task_id="dbt_docs_generate",
+        bash_command=f"cd {DBT_DIR} && dbt docs generate --profiles-dir {DBT_DIR} --project-dir {DBT_DIR}",
+    )
+
+    ingest_datahub_metadata = PythonOperator(
+        task_id="ingest_datahub_metadata",
+        python_callable=run_datahub_ingestion_task,
+        do_xcom_push=False,
+    )
+
+    emit_datahub_lineage = PythonOperator(
+        task_id="emit_datahub_lineage",
+        python_callable=emit_datahub_lineage_task,
+        do_xcom_push=False,
+    )
+
+    trigger_iceberg_maintenance = TriggerDagRunOperator(
+        task_id="trigger_iceberg_maintenance",
+        trigger_dag_id="iceberg_maintenance",
+        wait_for_completion=False,
+        reset_dag_run=True,
+    )
+
     notify_pipeline_complete = PythonOperator(
         task_id="notify_pipeline_complete",
         python_callable=notify_pipeline_complete_task,
     )
 
     (
-        generate_source_data
+        deploy_nifi_flows
+        >> generate_source_data
         >> publish_to_kafka
+        >> register_schema_subjects
         >> check_kafka_topics
         >> spark_bronze_ingest
+        >> validate_nifi_integration
+        >> kafka_bronze_ingest
         >> verify_bronze_counts
         >> dbt_run_silver
         >> dbt_test_silver
         >> run_gx_validation
         >> dbt_run_gold
         >> dbt_test_gold
+        >> dbt_docs_generate
+        >> ingest_datahub_metadata
+        >> emit_datahub_lineage
+        >> trigger_iceberg_maintenance
         >> notify_pipeline_complete
     )
