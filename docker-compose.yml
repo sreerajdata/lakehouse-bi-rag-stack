@@ -649,6 +649,7 @@ services:
     container_name: lakehouse_jupyterhub
     profiles: ["analytics", "all"]
     restart: unless-stopped
+    command: start-notebook.sh --ServerApp.token='' --ServerApp.password=''
     environment:
       JUPYTERHUB_ADMIN: admin
       TRINO_HOST: trino
