@@ -3,19 +3,26 @@ Daily maintenance: expire snapshots, rewrite data/manifest files,
 analyze tables, push metrics to Prometheus.
 """
 
+import os
 from datetime import datetime, timedelta
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
-from airflow.providers.apache.spark.operators.spark_submit import SparkSubmitOperator
 
-SPARK_CONN_ID = "spark_default"
+PUSHGATEWAY_URL = os.getenv("PUSHGATEWAY_URL", "http://pushgateway:9091")
+WAREHOUSE = "s3a://lakehouse-bronze/warehouse"
+SPARK_PACKAGES = ",".join(
+    [
+        "org.apache.iceberg:iceberg-spark-runtime-3.4_2.12:1.4.3",
+        "org.apache.hadoop:hadoop-aws:3.3.4",
+    ]
+)
 
 BRONZE_TABLES = [
     "lakehouse.bronze.mes_production_orders",
     "lakehouse.bronze.iqms_quality_tests",
     "lakehouse.bronze.iqms_deviations",
-    "lakehouse.bronze.sap_inventory_movements",
+    "lakehouse.bronze.sap_ecc_orders",
     "lakehouse.bronze.trackwise_capas",
     "lakehouse.bronze.tms_training_completions",
 ]
@@ -35,15 +42,20 @@ GOLD_TABLES = [
     "lakehouse.gold.gold_sap_inventory_mart",
     "lakehouse.gold.gold_quality_risk_mart",
     "lakehouse.gold.gold_training_compliance_mart",
-    "lakehouse.gold.gold_supply_chain_mart",
 ]
 
 ALL_TABLES = BRONZE_TABLES + SILVER_TABLES + GOLD_TABLES
+EXPIRE_SNAPSHOT_TABLES = [
+    table
+    for table in ALL_TABLES
+    if table != "lakehouse.bronze.sap_ecc_orders"
+]
 
 SPARK_CONF = {
     "spark.sql.catalog.lakehouse": "org.apache.iceberg.spark.SparkCatalog",
     "spark.sql.catalog.lakehouse.type": "hive",
     "spark.sql.catalog.lakehouse.uri": "thrift://hive-metastore:9083",
+    "spark.sql.catalog.lakehouse.warehouse": WAREHOUSE,
     "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
     "spark.hadoop.fs.s3a.endpoint": "http://seaweedfs-s3:8333",
     "spark.hadoop.fs.s3a.access.key": "admin",
@@ -65,7 +77,7 @@ dag = DAG(
     dag_id="iceberg_maintenance",
     default_args=default_args,
     description="Daily Iceberg table maintenance: snapshots, compaction, analysis",
-    schedule_interval="0 2 * * *",
+    schedule_interval=None,
     start_date=datetime(2025, 1, 1),
     catchup=False,
     max_active_runs=1,
@@ -86,17 +98,25 @@ def run_iceberg_maintenance(**context):
     spark = (
         SparkSession.builder
         .appName("iceberg_maintenance")
+        .config("spark.jars.packages", SPARK_PACKAGES)
         .config("spark.sql.catalog.lakehouse", SPARK_CONF["spark.sql.catalog.lakehouse"])
         .config("spark.sql.catalog.lakehouse.type", SPARK_CONF["spark.sql.catalog.lakehouse.type"])
         .config("spark.sql.catalog.lakehouse.uri", SPARK_CONF["spark.sql.catalog.lakehouse.uri"])
+        .config("spark.sql.catalog.lakehouse.warehouse", SPARK_CONF["spark.sql.catalog.lakehouse.warehouse"])
         .config("spark.sql.extensions", SPARK_CONF["spark.sql.extensions"])
+        .config("spark.hadoop.fs.s3a.endpoint", SPARK_CONF["spark.hadoop.fs.s3a.endpoint"])
+        .config("spark.hadoop.fs.s3a.access.key", SPARK_CONF["spark.hadoop.fs.s3a.access.key"])
+        .config("spark.hadoop.fs.s3a.secret.key", SPARK_CONF["spark.hadoop.fs.s3a.secret.key"])
+        .config("spark.hadoop.fs.s3a.path.style.access", SPARK_CONF["spark.hadoop.fs.s3a.path.style.access"])
+        .config("spark.hadoop.fs.s3a.impl", SPARK_CONF["spark.hadoop.fs.s3a.impl"])
+        .config("spark.hadoop.fs.s3a.connection.ssl.enabled", SPARK_CONF["spark.hadoop.fs.s3a.connection.ssl.enabled"])
         .getOrCreate()
     )
     spark.sparkContext.setLogLevel("WARN")
 
     results = {"expired": 0, "compacted": 0, "rewritten": 0, "analyzed": 0, "errors": []}
 
-    for table in ALL_TABLES:
+    for table in EXPIRE_SNAPSHOT_TABLES:
         try:
             spark.sql(f"""
                 CALL lakehouse.system.expire_snapshots(
@@ -149,7 +169,7 @@ def run_iceberg_maintenance(**context):
 
     print(f"\n{'='*60}")
     print(f"Iceberg Maintenance Summary:")
-    print(f"  Snapshots expired: {results['expired']}/{len(ALL_TABLES)}")
+    print(f"  Snapshots expired: {results['expired']}/{len(EXPIRE_SNAPSHOT_TABLES)}")
     print(f"  Silver compacted:  {results['compacted']}/{len(SILVER_TABLES)}")
     print(f"  Gold manifests:    {results['rewritten']}/{len(GOLD_TABLES)}")
     print(f"  Tables analyzed:   {results['analyzed']}/{len(ALL_TABLES)}")
@@ -185,7 +205,7 @@ def push_maintenance_metrics(**context):
             f'iceberg_maintenance_errors {len(results.get("errors", []))}\n'
         )
         response = httpx.post(
-            "http://prometheus:9091/metrics/job/iceberg_maintenance",
+            f"{PUSHGATEWAY_URL}/metrics/job/iceberg_maintenance",
             content=metrics,
             headers={"Content-Type": "text/plain"},
             timeout=10.0,

@@ -42,7 +42,7 @@ LINEAGE_EDGES = [
     },
     {
         "downstream": "silver.silver_sap_inventory",
-        "upstreams": ["bronze.sap_inventory_movements"],
+        "upstreams": ["bronze.sap_ecc_orders"],
     },
     {
         "downstream": "silver.silver_trackwise_capas",
@@ -77,13 +77,6 @@ LINEAGE_EDGES = [
     {
         "downstream": "gold.gold_sap_inventory_mart",
         "upstreams": ["silver.silver_sap_inventory"],
-    },
-    {
-        "downstream": "gold.gold_supply_chain_mart",
-        "upstreams": [
-            "silver.silver_sap_inventory",
-            "silver.silver_trackwise_capas",
-        ],
     },
     {
         "downstream": "gold.gold_training_compliance_mart",
@@ -175,7 +168,8 @@ def main():
     )
     args = parser.parse_args()
 
-    emit_lineage(args.gms_url, args.run_id)
+    success = emit_lineage(args.gms_url, args.run_id)
+    sys.exit(0 if success else 1)
 
 
 if __name__ == "__main__":

@@ -8,11 +8,18 @@ c.PAMAuthenticator.open_sessions = False
 
 c.Spawner.default_url = "/lab"
 c.Spawner.environment = {
-    "TRINO_HOST":           "trino",
-    "TRINO_PORT":           "8080",
-    "S3_ENDPOINT":          "http://seaweedfs-s3:8333",
-    "AWS_ACCESS_KEY_ID":    "admin",
+    # Data platform endpoints — all pre-wired to lakehouse_net services
+    "TRINO_HOST":            "trino",
+    "TRINO_PORT":            "8080",
+    "TRINO_CATALOG":         "iceberg",
+    "S3_ENDPOINT":           "http://seaweedfs-s3:8333",
+    "AWS_ACCESS_KEY_ID":     "admin",
     "AWS_SECRET_ACCESS_KEY": "admin123",
-    "KAFKA_BOOTSTRAP":      "kafka:9092",
-    "OLLAMA_URL":           "http://ollama:11434",
+    "KAFKA_BOOTSTRAP":       "kafka:9092",
+    "OLLAMA_URL":            "http://ollama:11434",
+    "MILVUS_HOST":           "milvus",
+    "MILVUS_PORT":           "19530",
 }
+# NOTE: trino, pyiceberg, boto3, pymilvus, confluent-kafka, dbt-trino and other
+# data-platform libraries are baked into the image at build time via
+# dockerfiles/jupyterhub/Dockerfile — no runtime pip install needed.

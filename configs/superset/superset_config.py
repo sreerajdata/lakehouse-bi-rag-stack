@@ -7,13 +7,6 @@ SQLALCHEMY_DATABASE_URI = os.getenv(
     "postgresql+psycopg2://admin:admin123@postgres:5432/superset"
 )
 
-ADDITIONAL_DATABASES = {
-    "trino_iceberg": {
-        "sqlalchemy_uri": "trino://admin@trino:8080/iceberg",
-        "name": "Enterprise Lakehouse (Trino/Iceberg)",
-    }
-}
-
 AUTH_TYPE = AUTH_DB
 WTF_CSRF_ENABLED = True
 FEATURE_FLAGS = {

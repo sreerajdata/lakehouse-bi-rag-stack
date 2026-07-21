@@ -62,6 +62,7 @@ JSON
       --data "$payload" \
       "${CONNECT_URL}/connectors"
   fi
+  curl -sS -X PUT "${CONNECT_URL}/connectors/${name}/resume" >/dev/null
   printf '\n'
 }
 

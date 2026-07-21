@@ -16,10 +16,12 @@ x-airflow-common: &airflow-common
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
   volumes:
     - ./configs/airflow/dags:/opt/airflow/dags
+    - ./configs/datahub:/opt/airflow/configs/datahub
     - ./scripts:/opt/airflow/scripts
     - ./data:/opt/airflow/data
     - ./dbt:/opt/airflow/dbt
     - ./great_expectations:/opt/airflow/great_expectations
+    - /var/run/docker.sock:/var/run/docker.sock
     - airflow_logs:/opt/airflow/logs
     - airflow_plugins:/opt/airflow/plugins
   depends_on:
@@ -75,13 +77,13 @@ volumes:
   grafana_data:
   milvus_data:
   ollama_data:
-  elasticsearch_data:
   opensearch_data:
   gitlab_config:
   gitlab_logs:
   gitlab_data:
   trino_data:
   openBao_data:
+  gitlab_runner_config:
 
 services:
 
@@ -572,12 +574,12 @@ services:
       - lakehouse_net
 
   tesseract:
-    image: bitnami/spark:3.4
+    build:
+      context: ./dockerfiles/tesseract
+      dockerfile: Dockerfile
     container_name: lakehouse_tesseract
     profiles: ["processing", "all"]
     entrypoint: ["tail", "-f", "/dev/null"]
-    ports:
-      - "3001:3000"
     networks:
       - lakehouse_net
 
@@ -641,14 +643,21 @@ services:
           - trino
 
   jupyterhub:
-    image: jupyter/datascience-notebook:latest
+    build:
+      context: ./dockerfiles/jupyterhub
+      dockerfile: Dockerfile
     container_name: lakehouse_jupyterhub
     profiles: ["analytics", "all"]
+    restart: unless-stopped
     environment:
       JUPYTERHUB_ADMIN: admin
+      TRINO_HOST: trino
+      TRINO_PORT: "8080"
+      S3_ENDPOINT: http://seaweedfs-s3:8333
     volumes:
       - jupyterhub_data:/srv/jupyterhub
       - ./configs/jupyterhub/jupyterhub_config.py:/srv/jupyterhub/jupyterhub_config.py
+      - ./configs/jupyterhub/notebooks:/home/jovyan/work
     ports:
       - "8400:8888"
     networks:
@@ -661,6 +670,7 @@ services:
     environment:
       SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-supersecret123}
       DATABASE_URL: postgresql+psycopg2://admin:admin123@postgres:5432/superset
+      SUPERSET_TRINO_URI: trino://admin@trino:8080/iceberg
     volumes:
       - superset_data:/app/superset_home
       - ./configs/superset/superset_config.py:/app/pythonpath/superset_config.py
@@ -671,8 +681,10 @@ services:
       postgres:
         condition: service_healthy
     command: >
-      bash -c "superset db upgrade &&
-               superset fab create-admin --username admin --firstname Admin --lastname User --email admin@superset.local --password admin &&
+      bash -c "pip install --no-cache-dir sqlalchemy-trino trino &&
+               superset db upgrade &&
+               (superset fab create-admin --username admin --firstname Admin --lastname User --email admin@superset.local --password admin || true) &&
+               superset set-database-uri -d 'Lakehouse (Trino)' -u \"$${SUPERSET_TRINO_URI}\" &&
                superset init &&
                superset run -h 0.0.0.0 -p 8088"
     networks:
@@ -818,6 +830,42 @@ services:
     networks:
       - lakehouse_net
 
+  langchain-indexer:
+    build:
+      context: ./dockerfiles/langchain-app
+      dockerfile: Dockerfile
+    container_name: lakehouse_langchain_indexer
+    profiles: ["ai", "all"]
+    command: ["python", "/app/index_milvus.py"]
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      EMBEDDING_MODEL: nomic-embed-text
+      MILVUS_HOST: milvus
+      MILVUS_PORT: 19530
+      MILVUS_COLLECTION: enterprise_documents
+      DOCS_BUCKET: lakehouse-docs
+      SEAWEEDFS_ENDPOINT: http://seaweedfs-s3:8333
+      SEAWEEDFS_ACCESS_KEY: ${SEAWEEDFS_ACCESS_KEY:-admin}
+      SEAWEEDFS_SECRET_KEY: ${SEAWEEDFS_SECRET_KEY:-admin123}
+      TIKA_URL: http://tika:9998
+    volumes:
+      - ./README.md:/workspace/README.md:ro
+      - ./docs:/workspace/docs:ro
+      - ./data/source:/workspace/data/source:ro
+    depends_on:
+      seaweedfs-init:
+        condition: service_completed_successfully
+      ollama:
+        condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
+      milvus:
+        condition: service_healthy
+      tika:
+        condition: service_started
+    networks:
+      - lakehouse_net
+
   prometheus:
     image: prom/prometheus:v2.51.2
     container_name: lakehouse_prometheus
@@ -842,6 +890,18 @@ services:
       lakehouse_net:
         aliases:
           - prometheus
+
+  pushgateway:
+    image: prom/pushgateway:v1.8.0
+    container_name: lakehouse_pushgateway
+    profiles: ["monitoring", "all"]
+    restart: unless-stopped
+    ports:
+      - "9093:9091"
+    networks:
+      lakehouse_net:
+        aliases:
+          - pushgateway
 
   grafana:
     image: grafana/grafana:10.4.2
@@ -1005,6 +1065,9 @@ services:
       KAFKA_SCHEMAREGISTRY_URL: http://schema-registry:8081
       NEO4J_HOST: "http://datahub-neo4j:7474"
       SYSTEM_UPDATE_WAIT_FOR_SYSTEM_UPDATE: "false"
+      MAE_CONSUMER_ENABLED: "true"
+      MCE_CONSUMER_ENABLED: "true"
+      PE_CONSUMER_ENABLED: "true"
     ports:
       - "8880:8080"
     depends_on:
@@ -1071,6 +1134,24 @@ services:
     networks:
       - lakehouse_net
 
+  openbao-init:
+    image: openbao/openbao:latest
+    container_name: lakehouse_openbao_init
+    profiles: ["governance", "all"]
+    restart: "no"
+    environment:
+      BAO_ADDR: http://openbao:8200
+      BAO_TOKEN: ${OPENBAO_TOKEN:-roottoken}
+    entrypoint: /bin/sh
+    command: /scripts/init-openbao.sh
+    volumes:
+      - ./scripts/init-openbao.sh:/scripts/init-openbao.sh:ro
+    depends_on:
+      openbao:
+        condition: service_started
+    networks:
+      - lakehouse_net
+
   gitlab:
     image: gitlab/gitlab-ce:16.7.0-ce.0
     container_name: lakehouse_gitlab
@@ -1094,12 +1175,26 @@ services:
         aliases:
           - gitlab
 
+  gitlab-runner:
+    image: gitlab/gitlab-runner:latest
+    container_name: lakehouse_gitlab_runner
+    profiles: ["cicd", "all"]
+    restart: unless-stopped
+    volumes:
+      - gitlab_runner_config:/etc/gitlab-runner
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      lakehouse_net:
+        aliases:
+          - gitlab-runner
+
   admin-dashboard:
     build:
       context: ./dockerfiles/admin-dashboard
       dockerfile: Dockerfile
     container_name: lakehouse_admin_dashboard
     profiles: ["analytics", "all"]
+    restart: unless-stopped
     environment:
       AIRFLOW_BASE_URL: http://airflow-webserver:8080
       SEAWEEDFS_ENDPOINT: http://seaweedfs-s3:8333
@@ -1111,7 +1206,7 @@ services:
       - "8502:8502"
     depends_on:
       airflow-webserver:
-        condition: service_healthy
+        condition: service_started
     networks:
       lakehouse_net:
         aliases:

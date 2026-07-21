@@ -5,7 +5,7 @@ USER airflow
 USER root
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openjdk-17-jre-headless procps \
+    && apt-get install -y --no-install-recommends docker.io git openjdk-17-jre-headless procps \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -23,4 +23,5 @@ RUN pip install --no-cache-dir \
     pandas \
     faker \
     pyspark==3.4.3 \
-    dbt-trino==1.7.1
+    dbt-trino==1.7.1 \
+    "acryl-datahub[dbt,trino]==0.14.1"

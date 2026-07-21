@@ -1,0 +1,12 @@
+pipeline_name: "trino-iceberg-metadata-ingestion"
+
+source:
+  type: trino
+  config:
+    host_port: trino:8080
+    username: admin
+    database: iceberg
+sink:
+  type: datahub-rest
+  config:
+    server: "http://datahub-gms:8080"

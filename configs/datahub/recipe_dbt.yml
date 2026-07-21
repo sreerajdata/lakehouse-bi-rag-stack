@@ -1,0 +1,13 @@
+pipeline_name: "dbt-trino-metadata-ingestion"
+
+source:
+  type: dbt
+  config:
+    manifest_path: "/opt/airflow/dbt/target/manifest.json"
+    catalog_path: "/opt/airflow/dbt/target/catalog.json"
+    target_platform: "trino"
+    env: "PROD"
+sink:
+  type: datahub-rest
+  config:
+    server: "http://datahub-gms:8080"

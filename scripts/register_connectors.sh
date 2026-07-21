@@ -57,6 +57,7 @@ for CONNECTOR_FILE in "${CONNECTOR_DIR}"/*.json; do
         STATUS_CODE=$(echo "$RESPONSE" | tail -1)
         if [ "$STATUS_CODE" = "200" ] || [ "$STATUS_CODE" = "201" ]; then
             echo "   ✅ Updated successfully"
+            curl -s -X PUT "${CONNECT_URL}/connectors/${CONNECTOR_NAME}/resume" > /dev/null || true
             SUCCESS=$((SUCCESS + 1))
         else
             echo "   ❌ Update failed (HTTP ${STATUS_CODE})"
@@ -71,6 +72,7 @@ for CONNECTOR_FILE in "${CONNECTOR_DIR}"/*.json; do
         STATUS_CODE=$(echo "$RESPONSE" | tail -1)
         if [ "$STATUS_CODE" = "201" ] || [ "$STATUS_CODE" = "200" ]; then
             echo "   ✅ Created successfully"
+            curl -s -X PUT "${CONNECT_URL}/connectors/${CONNECTOR_NAME}/resume" > /dev/null || true
             SUCCESS=$((SUCCESS + 1))
         else
             echo "   ❌ Creation failed (HTTP ${STATUS_CODE})"

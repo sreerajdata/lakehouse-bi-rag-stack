@@ -1,0 +1,9 @@
+pipeline_name: "glossary-ingestion"
+source:
+  type: datahub-business-glossary
+  config:
+    file: /etc/datahub/datahub_glossary.yml
+sink:
+  type: datahub-rest
+  config:
+    server: "http://datahub-gms:8080"

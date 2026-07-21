@@ -49,7 +49,7 @@ Ok "Silver data quality tests complete"
 
 Step "5/9" "SILVER VERIFICATION: Confirm new DEMO rows in Silver layer"
 Nfo "Querying Silver production orders for DEMO records..."
-Trino "SELECT order_id, product_code, order_status, CAST(planned_start AS varchar) AS planned_start FROM iceberg.silver.silver_production_orders WHERE order_id LIKE 'DEMO-%' ORDER BY order_id DESC LIMIT 10"
+Trino "SELECT order_id, product_code, status, CAST(planned_start AS varchar) AS planned_start FROM iceberg.silver.silver_production_orders WHERE order_id LIKE 'DEMO-%' ORDER BY order_id DESC LIMIT 10"
 Ok "Demo rows confirmed in Silver layer"
 
 Step "6/9" "GREAT EXPECTATIONS: Statistical data quality validation"

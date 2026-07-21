@@ -1,66 +1,55 @@
-
-glossary:
+version: 1
+owners:
+  users:
+    - "urn:li:corpuser:admin"
+nodes:
   - name: "Enterprise Manufacturing & Quality"
     description: "Standard pharmaceutical manufacturing and quality terminology for the enterprise"
     terms:
       - name: "OEE (Overall Equipment Effectiveness)"
         description: "A measure of manufacturing productivity. OEE = Availability × Performance × Quality Rate. World-class OEE is ≥85%."
-        termSource: "ISA-88 / ISO 22400"
         owners:
-          - "urn:li:corpuser:mfg_team"
+          users:
+            - "urn:li:corpuser:mfg_team"
 
       - name: "Availability"
         description: "The ratio of actual production time to planned production time. Accounts for unplanned stops, changeovers, equipment failures."
-        termSource: "ISO 22400-2:2014"
 
       - name: "Performance"
         description: "The ratio of actual production rate to ideal production rate. Accounts for speed losses and small stops."
-        termSource: "ISO 22400-2:2014"
 
       - name: "Quality Rate"
         description: "The ratio of good units produced to total units produced. Accounts for defects, rework, and scrap."
-        termSource: "ISO 22400-2:2014"
 
       - name: "CAPA (Corrective and Preventive Action)"
         description: "A systematic approach to investigate, correct, and prevent quality problems. Required by 21 CFR Part 820.90 and ICH Q10."
-        termSource: "21 CFR Part 820.90"
 
       - name: "Deviation"
         description: "A departure from an approved procedure, specification, or established standard. Classified as Critical, Major, or Minor."
-        termSource: "ICH Q7, EU GMP Annex 15"
 
       - name: "Batch Record"
         description: "A complete record of the manufacturing, testing, and packaging of a single batch. Must comply with 21 CFR Part 211.188."
-        termSource: "21 CFR Part 211.188"
 
       - name: "ALCOA+"
         description: "Data integrity framework: Attributable, Legible, Contemporaneous, Original, Accurate + Complete, Consistent, Enduring, Available."
-        termSource: "WHO TRS 996, PIC/S PI 041-1"
 
       - name: "21 CFR Part 11"
         description: "FDA regulation governing electronic records and electronic signatures. Requires audit trails, access controls, and data integrity."
-        termSource: "FDA 21 CFR Part 11"
 
       - name: "Batch Release"
         description: "The formal decision to release a manufactured batch for distribution after all quality testing and review is complete."
-        termSource: "EU GMP Annex 16"
 
       - name: "GMP (Good Manufacturing Practice)"
         description: "Regulations governing pharmaceutical manufacturing to ensure products meet quality standards. Per 21 CFR Parts 210-211."
-        termSource: "21 CFR Parts 210-211"
 
       - name: "Stock Turnover Ratio"
         description: "Inventory metric measuring how many times inventory is sold/used in a period. Higher = more efficient inventory management."
-        termSource: "Financial/Supply Chain"
 
       - name: "Vendor Score"
         description: "Composite performance metric (0-100) evaluating vendor quality, delivery reliability, and compliance with CAPAs."
-        termSource: "Enterprise Supply Chain"
 
       - name: "Risk Score"
         description: "Composite quality risk metric (0-100) evaluating batch quality based on test pass rate, deviations, and yield."
-        termSource: "ICH Q9"
 
       - name: "Training Compliance"
         description: "Percentage of required training completed on time. Regulatory requirement under 21 CFR Part 211.25."
-        termSource: "21 CFR Part 211.25"

@@ -1,0 +1,185 @@
+# .gitlab-ci.yml
+# Lakehouse CI/CD pipeline — dbt validation + Airflow DAG deployment
+#
+# Prerequisites (one-time manual setup):
+#   1. Push this repo to your GitLab instance (http://localhost:8929)
+#   2. Register a GitLab Runner inside lakehouse_net with the docker executor:
+#        docker exec -it lakehouse_gitlab gitlab-runner register \
+#          --url http://gitlab.lakehouse.local:8929 \
+#          --executor docker --docker-image python:3.11-slim \
+#          --docker-network-mode lakehouse-base-build_lakehouse_net
+#   3. Add CI/CD variables in GitLab UI (Settings → CI/CD → Variables):
+#        AIRFLOW_DAG_VOLUME_PATH  — host path to ./configs/airflow/dags
+#        TRINO_HOST               — trino
+#        TRINO_PORT               — 8080
+
+stages:
+  - validate
+  - test
+  - deploy-dags
+  - notify
+
+# ── Reusable anchors ───────────────────────────────────────────────────────────
+.dbt-base: &dbt-base
+  image: ghcr.io/dbt-labs/dbt-trino:1.8.2
+  before_script:
+    - cd dbt
+    - pip install --quiet dbt-trino==1.8.2
+  variables:
+    DBT_PROFILES_DIR: "."
+    DBT_PROJECT_DIR: "."
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE: validate
+# ─────────────────────────────────────────────────────────────────────────────
+dbt:compile:
+  <<: *dbt-base
+  stage: validate
+  script:
+    - echo "Compiling dbt project..."
+    - dbt compile --profiles-dir . --project-dir .
+  artifacts:
+    paths:
+      - dbt/target/manifest.json
+      - dbt/target/compiled/
+    expire_in: 1 hour
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+lint:dbt-yaml:
+  stage: validate
+  image: python:3.11-slim
+  script:
+    - pip install --quiet yamllint
+    - |
+      echo "Linting dbt YAML files..."
+      find dbt/models -name "*.yml" -exec yamllint -d relaxed {} \;
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+lint:dag-syntax:
+  stage: validate
+  image: python:3.11-slim
+  script:
+    - pip install --quiet apache-airflow==2.8.4
+    - |
+      echo "Checking Airflow DAG syntax..."
+      for dag_file in configs/airflow/dags/*.py; do
+        echo "  Checking: $dag_file"
+        python -c "
+import ast, sys
+with open('$dag_file') as f:
+    source = f.read()
+try:
+    ast.parse(source)
+    print('  OK: $dag_file')
+except SyntaxError as e:
+    print(f'  FAIL: $dag_file: {e}')
+    sys.exit(1)
+"
+      done
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE: test
+# ─────────────────────────────────────────────────────────────────────────────
+dbt:test:silver:
+  <<: *dbt-base
+  stage: test
+  script:
+    - echo "Running dbt tests on Silver models..."
+    - dbt test --select silver --profiles-dir . --project-dir .
+  dependencies:
+    - dbt:compile
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  allow_failure: false
+
+dbt:test:gold:
+  <<: *dbt-base
+  stage: test
+  script:
+    - echo "Running dbt tests on Gold models..."
+    - dbt test --select gold --profiles-dir . --project-dir .
+  dependencies:
+    - dbt:compile
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  allow_failure: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE: deploy-dags
+# Syncs the configs/airflow/dags/ directory to the Airflow DAG volume.
+# Only runs on main branch after all tests pass.
+# ─────────────────────────────────────────────────────────────────────────────
+deploy:airflow-dags:
+  stage: deploy-dags
+  image: alpine:3.19
+  script:
+    - apk add --no-cache rsync openssh-client
+    - echo "Deploying DAGs to Airflow volume..."
+    - |
+      # If AIRFLOW_DAG_VOLUME_PATH is set, sync directly (runner with volume access)
+      if [ -n "${AIRFLOW_DAG_VOLUME_PATH}" ]; then
+        rsync -av --delete \
+          --exclude '__pycache__' \
+          --exclude '*.pyc' \
+          configs/airflow/dags/ \
+          "${AIRFLOW_DAG_VOLUME_PATH}/"
+        echo "DAGs synced to ${AIRFLOW_DAG_VOLUME_PATH}"
+      else
+        echo "AIRFLOW_DAG_VOLUME_PATH not set — skipping rsync. Set this variable in GitLab CI/CD settings."
+      fi
+  dependencies:
+    - dbt:test:silver
+    - dbt:test:gold
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  environment:
+    name: lakehouse-dev
+    url: http://localhost:8280
+
+deploy:dbt-project:
+  stage: deploy-dags
+  image: alpine:3.19
+  script:
+    - apk add --no-cache rsync
+    - echo "Syncing dbt project..."
+    - |
+      if [ -n "${DBT_PROJECT_VOLUME_PATH}" ]; then
+        rsync -av --delete \
+          --exclude 'target/' \
+          --exclude 'dbt_packages/' \
+          --exclude 'logs/' \
+          --exclude '__pycache__' \
+          dbt/ \
+          "${DBT_PROJECT_VOLUME_PATH}/"
+        echo "dbt project synced to ${DBT_PROJECT_VOLUME_PATH}"
+      else
+        echo "DBT_PROJECT_VOLUME_PATH not set — skipping dbt sync."
+      fi
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STAGE: notify
+# ─────────────────────────────────────────────────────────────────────────────
+notify:pipeline-complete:
+  stage: notify
+  image: alpine:3.19
+  script:
+    - |
+      echo "════════════════════════════════════════"
+      echo "Pipeline complete: ${CI_PIPELINE_URL}"
+      echo "Branch : ${CI_COMMIT_BRANCH}"
+      echo "Commit : ${CI_COMMIT_SHORT_SHA} — ${CI_COMMIT_TITLE}"
+      echo "Author : ${CI_COMMIT_AUTHOR}"
+      echo "════════════════════════════════════════"
+      # Extend this step to send Slack/Teams/email notifications when ready.
+  when: always
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
